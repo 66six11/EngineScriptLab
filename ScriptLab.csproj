@@ -9,6 +9,8 @@
 
     <ItemGroup>
         <Compile Remove="ScriptLab.Tests/**/*.cs" />
+        <Compile Remove="ScriptLab.ScriptAssets/**/*.cs" />
+        <Compile Remove="ScriptLab.Analyzers/**/*.cs" />
         <Compile Remove="Samples/**/*.ash.cs" />
         <None Include="Samples/**/*.ash.cs" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
