@@ -70,6 +70,20 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
+    public void ParseText_WhenScriptCallsUnregisteredMemberFunction_ReturnsAgc0003()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScript("""Debug.Log("move");"""),
+            "UnregisteredCall.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0003" &&
+            diagnostic.Message.Contains("Debug.Log", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ParseText_WhenPublicFieldHasNoAttribute_ReturnsFieldSummary()
     {
         var result = GraphCSharpScriptParser.ParseText(

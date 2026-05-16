@@ -13,4 +13,9 @@
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
     </ItemGroup>
 
+    <ItemGroup>
+        <Compile Include="..\Shared\GraphCSharpRuleSet.cs" Link="Shared\GraphCSharpRuleSet.cs" />
+        <Compile Include="..\Shared\GraphCSharpBindingRegistry.cs" Link="Shared\GraphCSharpBindingRegistry.cs" />
+    </ItemGroup>
+
 </Project>

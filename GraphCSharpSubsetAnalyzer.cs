@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using ScriptLab.GraphCSharp;
 
 namespace ScriptLab;
 
@@ -19,109 +20,49 @@ public static class GraphCSharpSubsetAnalyzer
 
         public IReadOnlyList<ScriptDiagnostic> Diagnostics => diagnostics;
 
-        public override void VisitParenthesizedLambdaExpression(ParenthesizedLambdaExpressionSyntax node)
+        public override void Visit(SyntaxNode? node)
         {
-            ReportUnsupportedSyntax(node, "Lambda expressions are not supported by Graph C# v0.");
-            base.VisitParenthesizedLambdaExpression(node);
+            if (node is null)
+            {
+                return;
+            }
+
+            var rule = GraphCSharpRuleSet.Find(node.Kind());
+            if (rule is not null)
+            {
+                Report(node, rule);
+            }
+
+            if (node is InvocationExpressionSyntax invocation)
+            {
+                ReportUnregisteredFunctionCall(invocation);
+            }
+
+            base.Visit(node);
         }
 
-        public override void VisitSimpleLambdaExpression(SimpleLambdaExpressionSyntax node)
+        private void ReportUnregisteredFunctionCall(InvocationExpressionSyntax invocation)
         {
-            ReportUnsupportedSyntax(node, "Lambda expressions are not supported by Graph C# v0.");
-            base.VisitSimpleLambdaExpression(node);
+            if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
+            {
+                return;
+            }
+
+            var csharpName = memberAccess.ToString();
+            if (GraphCSharpBindingRegistry.TryGetFunctionId(csharpName, out _))
+            {
+                return;
+            }
+
+            Report(
+                invocation,
+                "AGC0003",
+                GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName));
         }
 
-        public override void VisitAnonymousMethodExpression(AnonymousMethodExpressionSyntax node)
+        private void Report(SyntaxNode node, GraphCSharpSyntaxRule rule)
         {
-            ReportUnsupportedSyntax(node, "Anonymous methods are not supported by Graph C# v0.");
-            base.VisitAnonymousMethodExpression(node);
-        }
-
-        public override void VisitAwaitExpression(AwaitExpressionSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "await is not supported by Graph C# v0.");
-            base.VisitAwaitExpression(node);
-        }
-
-        public override void VisitYieldStatement(YieldStatementSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "yield is not supported by Graph C# v0.");
-            base.VisitYieldStatement(node);
-        }
-
-        public override void VisitTryStatement(TryStatementSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "try/catch/finally is not supported by Graph C# v0.");
-            base.VisitTryStatement(node);
-        }
-
-        public override void VisitThrowStatement(ThrowStatementSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "throw is not supported by Graph C# v0.");
-            base.VisitThrowStatement(node);
-        }
-
-        public override void VisitGotoStatement(GotoStatementSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "goto is not supported by Graph C# v0.");
-            base.VisitGotoStatement(node);
-        }
-
-        public override void VisitLockStatement(LockStatementSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "lock is not supported by Graph C# v0.");
-            base.VisitLockStatement(node);
-        }
-
-        public override void VisitUnsafeStatement(UnsafeStatementSyntax node)
-        {
-            ReportUnsupportedSyntax(node, "unsafe blocks are not supported by Graph C# v0.");
-            base.VisitUnsafeStatement(node);
-        }
-
-        public override void VisitQueryExpression(QueryExpressionSyntax node)
-        {
-            ReportUnsupportedExpression(node, "LINQ query expressions are not supported by Graph C# v0.");
-            base.VisitQueryExpression(node);
-        }
-
-        public override void VisitForStatement(ForStatementSyntax node)
-        {
-            ReportUnsupportedLoop(node, "for loops are not supported by Graph C# v0.");
-            base.VisitForStatement(node);
-        }
-
-        public override void VisitForEachStatement(ForEachStatementSyntax node)
-        {
-            ReportUnsupportedLoop(node, "foreach loops are not supported by Graph C# v0.");
-            base.VisitForEachStatement(node);
-        }
-
-        public override void VisitWhileStatement(WhileStatementSyntax node)
-        {
-            ReportUnsupportedLoop(node, "while loops are not supported by Graph C# v0.");
-            base.VisitWhileStatement(node);
-        }
-
-        public override void VisitDoStatement(DoStatementSyntax node)
-        {
-            ReportUnsupportedLoop(node, "do loops are not supported by Graph C# v0.");
-            base.VisitDoStatement(node);
-        }
-
-        private void ReportUnsupportedSyntax(SyntaxNode node, string message)
-        {
-            Report(node, "AGC0001", message);
-        }
-
-        private void ReportUnsupportedExpression(SyntaxNode node, string message)
-        {
-            Report(node, "AGC0002", message);
-        }
-
-        private void ReportUnsupportedLoop(SyntaxNode node, string message)
-        {
-            Report(node, "AGC0007", message);
+            Report(node, rule.Id, rule.Message);
         }
 
         private void Report(SyntaxNode node, string id, string message)
@@ -131,7 +72,7 @@ public static class GraphCSharpSubsetAnalyzer
 
             diagnostics.Add(new ScriptDiagnostic(
                 id,
-                "Error",
+                GraphCSharpRuleSet.ErrorSeverity,
                 message,
                 Path.GetFileName(span.Path),
                 start.Line + 1,

@@ -1,122 +1,71 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
+using ScriptLab.GraphCSharp;
 
 namespace ScriptLab.Analyzers;
 
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class GraphCSharpDiagnosticAnalyzer : DiagnosticAnalyzer
 {
-    private static readonly DiagnosticDescriptor UnsupportedSyntax = new(
-        "AGC0001",
-        "Unsupported Graph C# syntax",
-        "{0}",
-        "GraphCSharp",
-        DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    private static readonly DiagnosticDescriptor UnsupportedExpression = new(
-        "AGC0002",
-        "Unsupported Graph C# expression",
-        "{0}",
-        "GraphCSharp",
-        DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    private static readonly DiagnosticDescriptor UnsupportedLoop = new(
-        "AGC0007",
-        "Unsupported Graph C# loop",
-        "{0}",
-        "GraphCSharp",
-        DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
+    private static readonly IReadOnlyDictionary<string, DiagnosticDescriptor> Descriptors =
+        GraphCSharpRuleSet.Diagnostics.ToDictionary(
+            diagnostic => diagnostic.Id,
+            diagnostic => new DiagnosticDescriptor(
+                diagnostic.Id,
+                diagnostic.Title,
+                "{0}",
+                GraphCSharpRuleSet.Category,
+                DiagnosticSeverity.Error,
+                isEnabledByDefault: true));
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
-        ImmutableArray.Create(UnsupportedSyntax, UnsupportedExpression, UnsupportedLoop);
+        Descriptors.Values.ToImmutableArray();
 
     public override void Initialize(AnalysisContext context)
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
 
-        context.RegisterSyntaxNodeAction(
-            ReportUnsupportedSyntax,
-            SyntaxKind.ParenthesizedLambdaExpression,
-            SyntaxKind.SimpleLambdaExpression,
-            SyntaxKind.AnonymousMethodExpression,
-            SyntaxKind.AwaitExpression,
-            SyntaxKind.YieldReturnStatement,
-            SyntaxKind.YieldBreakStatement,
-            SyntaxKind.TryStatement,
-            SyntaxKind.ThrowStatement,
-            SyntaxKind.GotoStatement,
-            SyntaxKind.LockStatement,
-            SyntaxKind.UnsafeStatement);
-
-        context.RegisterSyntaxNodeAction(
-            ReportUnsupportedExpression,
-            SyntaxKind.QueryExpression);
-
-        context.RegisterSyntaxNodeAction(
-            ReportUnsupportedLoop,
-            SyntaxKind.ForStatement,
-            SyntaxKind.ForEachStatement,
-            SyntaxKind.WhileStatement,
-            SyntaxKind.DoStatement);
+        context.RegisterSyntaxNodeAction(ReportUnsupportedSyntax, GraphCSharpRuleSet.SyntaxKinds);
+        context.RegisterSyntaxNodeAction(ReportUnregisteredFunctionCall, SyntaxKind.InvocationExpression);
     }
 
     private static void ReportUnsupportedSyntax(SyntaxNodeAnalysisContext context)
     {
-        context.ReportDiagnostic(Diagnostic.Create(
-            UnsupportedSyntax,
-            context.Node.GetLocation(),
-            GetUnsupportedSyntaxMessage(context.Node)));
-    }
-
-    private static void ReportUnsupportedExpression(SyntaxNodeAnalysisContext context)
-    {
-        context.ReportDiagnostic(Diagnostic.Create(
-            UnsupportedExpression,
-            context.Node.GetLocation(),
-            "LINQ query expressions are not supported by Graph C# v0."));
-    }
-
-    private static void ReportUnsupportedLoop(SyntaxNodeAnalysisContext context)
-    {
-        context.ReportDiagnostic(Diagnostic.Create(
-            UnsupportedLoop,
-            context.Node.GetLocation(),
-            GetUnsupportedLoopMessage(context.Node)));
-    }
-
-    private static string GetUnsupportedSyntaxMessage(SyntaxNode node)
-    {
-        return node switch
+        var rule = GraphCSharpRuleSet.Find(context.Node.Kind());
+        if (rule is null)
         {
-            LambdaExpressionSyntax => "Lambda expressions are not supported by Graph C# v0.",
-            AnonymousMethodExpressionSyntax => "Anonymous methods are not supported by Graph C# v0.",
-            AwaitExpressionSyntax => "await is not supported by Graph C# v0.",
-            YieldStatementSyntax => "yield is not supported by Graph C# v0.",
-            TryStatementSyntax => "try/catch/finally is not supported by Graph C# v0.",
-            ThrowStatementSyntax => "throw is not supported by Graph C# v0.",
-            GotoStatementSyntax => "goto is not supported by Graph C# v0.",
-            LockStatementSyntax => "lock is not supported by Graph C# v0.",
-            UnsafeStatementSyntax => "unsafe blocks are not supported by Graph C# v0.",
-            _ => "This syntax is not supported by Graph C# v0."
-        };
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            Descriptors[rule.Id],
+            context.Node.GetLocation(),
+            rule.Message));
     }
 
-    private static string GetUnsupportedLoopMessage(SyntaxNode node)
+    private static void ReportUnregisteredFunctionCall(SyntaxNodeAnalysisContext context)
     {
-        return node switch
+        if (context.Node is not InvocationExpressionSyntax invocation ||
+            invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
         {
-            ForStatementSyntax => "for loops are not supported by Graph C# v0.",
-            ForEachStatementSyntax => "foreach loops are not supported by Graph C# v0.",
-            WhileStatementSyntax => "while loops are not supported by Graph C# v0.",
-            DoStatementSyntax => "do loops are not supported by Graph C# v0.",
-            _ => "Loops are not supported by Graph C# v0."
-        };
+            return;
+        }
+
+        var csharpName = memberAccess.ToString();
+        if (GraphCSharpBindingRegistry.TryGetFunctionId(csharpName, out _))
+        {
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            Descriptors["AGC0003"],
+            invocation.GetLocation(),
+            GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName)));
     }
 }
