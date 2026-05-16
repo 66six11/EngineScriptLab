@@ -1,7 +1,8 @@
 using Asharia.Behavior;
 
-[Behavior("com.game.UnsupportedLoop")]
-public sealed partial class UnsupportedLoop : BehaviorComponent
+namespace com.game;
+
+public class UnsupportedLoop : BehaviorComponent
 {
     public float Speed = 4.0f;
 

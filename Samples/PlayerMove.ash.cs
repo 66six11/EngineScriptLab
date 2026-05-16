@@ -1,7 +1,8 @@
 using Asharia.Behavior;
 
-[Behavior("com.game.PlayerMove")]
-public sealed partial class PlayerMove : BehaviorComponent
+namespace com.game;
+
+public class PlayerMove : BehaviorComponent
 {
     [Range(0f, 20f)]
     public float Speed = 4.0f;

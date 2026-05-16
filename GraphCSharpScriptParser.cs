@@ -61,8 +61,14 @@ public static class GraphCSharpScriptParser
 
     private static ScriptBehaviorSummary BuildBehaviorSummary(ClassDeclarationSyntax behaviorClass)
     {
+        var explicitBehaviorId = GetFirstAttributeArgument(behaviorClass.AttributeLists, "Behavior");
+        var behaviorId = explicitBehaviorId ?? GetDefaultBehaviorId(behaviorClass);
+
         return new ScriptBehaviorSummary(
             behaviorClass.Identifier.ValueText,
+            behaviorId,
+            explicitBehaviorId is null ? "default" : "explicit",
+            GetAttributeArguments(behaviorClass.AttributeLists, "FormerlyBehavior"),
             BuildFields(behaviorClass),
             BuildMethods(behaviorClass));
     }
@@ -250,6 +256,31 @@ public static class GraphCSharpScriptParser
         return classDeclaration.BaseList?.Types.Any(type => type.Type.ToString() == "BehaviorComponent") == true;
     }
 
+    private static string GetDefaultBehaviorId(ClassDeclarationSyntax behaviorClass)
+    {
+        var namespaceName = GetNamespaceName(behaviorClass);
+        return string.IsNullOrEmpty(namespaceName)
+            ? behaviorClass.Identifier.ValueText
+            : $"{namespaceName}.{behaviorClass.Identifier.ValueText}";
+    }
+
+    private static string GetNamespaceName(SyntaxNode node)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case BaseNamespaceDeclarationSyntax namespaceDeclaration:
+                    return namespaceDeclaration.Name.ToString();
+
+                case CompilationUnitSyntax:
+                    return string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static bool IsBehaviorField(FieldDeclarationSyntax field)
     {
         return IsPublicInstanceField(field) || HasExplicitFieldAttribute(field.AttributeLists);
@@ -294,6 +325,31 @@ public static class GraphCSharpScriptParser
             .Any(attribute => AttributeMatches(attribute, attributeName));
     }
 
+    private static string? GetFirstAttributeArgument(SyntaxList<AttributeListSyntax> attributeLists, string attributeName)
+    {
+        return GetAttributeArguments(attributeLists, attributeName).FirstOrDefault();
+    }
+
+    private static IReadOnlyList<string> GetAttributeArguments(
+        SyntaxList<AttributeListSyntax> attributeLists,
+        string attributeName)
+    {
+        return attributeLists
+            .SelectMany(list => list.Attributes)
+            .Where(attribute => AttributeMatches(attribute, attributeName))
+            .Select(attribute => attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression)
+            .OfType<ExpressionSyntax>()
+            .Select(GetAttributeArgumentValue)
+            .ToArray();
+    }
+
+    private static string GetAttributeArgumentValue(ExpressionSyntax expression)
+    {
+        return expression is LiteralExpressionSyntax literal && literal.Token.ValueText.Length > 0
+            ? literal.Token.ValueText
+            : expression.ToString();
+    }
+
     private static bool AttributeMatches(AttributeSyntax attribute, string expectedName)
     {
         var actualName = GetSimpleAttributeName(attribute.Name);
@@ -333,6 +389,9 @@ public sealed record ScriptDiagnostic(
 
 public sealed record ScriptBehaviorSummary(
     string Name,
+    string Id,
+    string IdSource,
+    IReadOnlyList<string> FormerlyBehaviorIds,
     IReadOnlyList<ScriptFieldSummary> Fields,
     IReadOnlyList<ScriptMethodSummary> Methods);
 

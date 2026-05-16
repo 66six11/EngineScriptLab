@@ -15,6 +15,9 @@ public sealed class GraphCSharpScriptParserTests
 
         var behavior = result.Behavior;
         Assert.Equal("PlayerMove", behavior.Name);
+        Assert.Equal("com.game.PlayerMove", behavior.Id);
+        Assert.Equal("default", behavior.IdSource);
+        Assert.Empty(behavior.FormerlyBehaviorIds);
 
         var field = Assert.Single(behavior.Fields);
         Assert.Equal("Speed", field.Name);
@@ -120,6 +123,53 @@ public sealed class GraphCSharpScriptParserTests
         Assert.Empty(result.Behavior.Fields);
     }
 
+    [Fact]
+    public void ParseText_WhenBehaviorAttributeExists_UsesExplicitBehaviorId()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+
+            namespace game.scripts;
+
+            [Behavior("com.game.CustomMove")]
+            public class PlayerMove : BehaviorComponent
+            {
+                public float Speed = 4.0f;
+            }
+            """,
+            "ExplicitBehaviorId.ash.cs");
+
+        Assert.False(result.HasErrors);
+        Assert.NotNull(result.Behavior);
+        Assert.Equal("com.game.CustomMove", result.Behavior.Id);
+        Assert.Equal("explicit", result.Behavior.IdSource);
+    }
+
+    [Fact]
+    public void ParseText_WhenFormerlyBehaviorExists_ReturnsMigrationIds()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            [FormerlyBehavior("com.game.OldMove")]
+            [FormerlyBehavior("com.game.LegacyMove")]
+            public class PlayerMove : BehaviorComponent
+            {
+                public float Speed = 4.0f;
+            }
+            """,
+            "FormerlyBehavior.ash.cs");
+
+        Assert.False(result.HasErrors);
+        Assert.NotNull(result.Behavior);
+        Assert.Equal("com.game.PlayerMove", result.Behavior.Id);
+        Assert.Equal(new[] { "com.game.OldMove", "com.game.LegacyMove" }, result.Behavior.FormerlyBehaviorIds);
+    }
+
     private static string GetSamplePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -143,6 +193,8 @@ public sealed class GraphCSharpScriptParserTests
         return $$"""
             using Asharia.Behavior;
 
+            namespace com.game;
+
             [Behavior("com.game.Unsupported")]
             public sealed partial class Unsupported : BehaviorComponent
             {
@@ -161,8 +213,9 @@ public sealed class GraphCSharpScriptParserTests
         return $$"""
             using Asharia.Behavior;
 
-            [Behavior("com.game.FieldDiscovery")]
-            public sealed partial class FieldDiscovery : BehaviorComponent
+            namespace com.game;
+
+            public class FieldDiscovery : BehaviorComponent
             {
                 {{fields}}
 

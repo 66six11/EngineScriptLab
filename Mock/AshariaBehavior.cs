@@ -6,6 +6,12 @@ public sealed class BehaviorAttribute(string id) : Attribute
     public string Id { get; } = id;
 }
 
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+public sealed class FormerlyBehaviorAttribute(string id) : Attribute
+{
+    public string Id { get; } = id;
+}
+
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class FieldAttribute : Attribute
 {

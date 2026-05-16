@@ -23,6 +23,13 @@ public static class ConsoleScriptReporter
         }
 
         writer.WriteLine($"Behavior: {result.Behavior.Name}");
+        writer.WriteLine($"BehaviorId: {result.Behavior.Id} [{result.Behavior.IdSource}]");
+
+        if (result.Behavior.FormerlyBehaviorIds.Count > 0)
+        {
+            writer.WriteLine($"FormerlyBehavior: {string.Join(", ", result.Behavior.FormerlyBehaviorIds)}");
+        }
+
         WriteFields(result.Behavior, writer);
         WriteMethods(result.Behavior, writer);
     }

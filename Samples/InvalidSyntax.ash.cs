@@ -1,7 +1,8 @@
 using Asharia.Behavior;
 
-[Behavior("com.game.InvalidSyntax")]
-public sealed partial class InvalidSyntax : BehaviorComponent
+namespace com.game;
+
+public class InvalidSyntax : BehaviorComponent
 {
     public float Speed = 4.0f;
 
