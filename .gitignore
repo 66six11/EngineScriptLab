@@ -4,4 +4,7 @@ obj/
 riderModule.iml
 /_ReSharper.Caches/
 .idea/
+.vs/
+.gradle/
+Asharia.RiderPlugin/
 *.DotSettings.user

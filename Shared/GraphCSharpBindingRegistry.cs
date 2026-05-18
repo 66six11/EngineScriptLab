@@ -18,7 +18,9 @@ public static class GraphCSharpBindingRegistry
     public static readonly GraphCSharpFunctionBinding[] Functions =
     {
         new("Input.KeyDown", "asharia.input.keyDown"),
-        new("Transform.Translate", "asharia.transform.translate")
+        new("Transform.Translate", "asharia.transform.translate"),
+        new("GraphDebug.Inspect", "asharia.debug.inspect"),
+        new("GraphDebug.Watch", "asharia.debug.watch")
     };
 
     public static bool TryGetFunctionId(string csharpName, out string functionId)

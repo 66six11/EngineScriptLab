@@ -75,12 +75,42 @@ public enum Key
 
 public static class Input
 {
-    public static bool KeyDown(Key key) => false;
+    private static readonly HashSet<Key> DownKeys = new();
+
+    public static bool KeyDown(Key key) => DownKeys.Contains(key);
+
+    public static void SetKeyDown(Key key, bool isDown)
+    {
+        if (isDown)
+        {
+            DownKeys.Add(key);
+            return;
+        }
+
+        DownKeys.Remove(key);
+    }
+
+    public static void Clear()
+    {
+        DownKeys.Clear();
+    }
 }
 
 public static class Transform
 {
     public static void Translate(EntityRef entity, Vec3 offset)
+    {
+    }
+}
+
+public static class GraphDebug
+{
+    public static T Inspect<T>(string name, T value)
+    {
+        return value;
+    }
+
+    public static void Watch<T>(string name, T value)
     {
     }
 }

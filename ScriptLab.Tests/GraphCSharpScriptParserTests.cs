@@ -84,6 +84,15 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
+    public void ParseFile_WhenScriptUsesGraphDebugWatch_ReturnsNoDiagnostics()
+    {
+        var result = GraphCSharpScriptParser.ParseFile(GetSamplePath("DebugWatch.ash.cs"));
+
+        Assert.Empty(result.Diagnostics);
+        Assert.False(result.HasErrors);
+    }
+
+    [Fact]
     public void ParseText_WhenPublicFieldHasNoAttribute_ReturnsFieldSummary()
     {
         var result = GraphCSharpScriptParser.ParseText(

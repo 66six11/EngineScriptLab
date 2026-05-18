@@ -11,6 +11,7 @@
     <ItemGroup>
         <Compile Include="..\Samples\PlayerMove.ash.cs" Link="Scripts\PlayerMove.ash.cs" />
         <Compile Include="..\Samples\PrivateSerializedField.ash.cs" Link="Scripts\PrivateSerializedField.ash.cs" />
+        <Compile Include="..\Samples\DebugWatch.ash.cs" Link="Scripts\DebugWatch.ash.cs" />
     </ItemGroup>
 
     <ItemGroup>
