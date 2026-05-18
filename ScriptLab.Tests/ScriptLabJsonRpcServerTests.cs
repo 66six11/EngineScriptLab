@@ -17,7 +17,8 @@ public sealed class ScriptLabJsonRpcServerTests
             new
             {
                 scriptPath = GetSamplePath("PlayerMove.ash.cs"),
-                graphNodeId = "n3"
+                graphNodeId = "n3",
+                observeTrace = true
             });
         var result = response.RootElement.GetProperty("result");
 
@@ -62,7 +63,7 @@ public sealed class ScriptLabJsonRpcServerTests
             .EnumerateArray());
         Assert.Equal(branchNodeId, breakpoint.GetProperty("graphNodeId").GetString());
 
-        using var run = Send(server, 3, "runDebug", new { });
+        using var run = Send(server, 3, "runDebug", new { observeTrace = true });
         Assert.Equal(branchNodeId, run.RootElement
             .GetProperty("result")
             .GetProperty("stoppedEvent")

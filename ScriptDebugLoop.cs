@@ -6,7 +6,9 @@ public sealed record ScriptDebugLoopOptions(
     string? GraphNodeId = null,
     int EntityId = 1,
     float Delta = 0.016f,
-    bool PressKeyW = true);
+    bool PressKeyW = true,
+    bool ObserveTrace = true,
+    bool ObserveWatch = true);
 
 public sealed record ScriptDebugLoopResult(
     string AssemblyPath,
@@ -37,6 +39,10 @@ public static class ScriptDebugLoop
         var session = new ScriptDebugSession(emit.DebugMap, sourceText);
         var host = DebugScriptHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
+        session.SetTraceObservationEnabled(options.ObserveTrace);
+        session.SetWatchObservationEnabled(options.ObserveWatch);
+        host.SetTraceEnabled(options.ObserveTrace);
+        host.SetWatchEnabled(options.ObserveWatch);
         var graphNodeId = options.GraphNodeId ?? FindDefaultGraphNodeId(emit.DebugMap);
 
         IReadOnlyList<ScriptBreakpointState> breakpoints = Array.Empty<ScriptBreakpointState>();

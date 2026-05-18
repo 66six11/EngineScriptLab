@@ -216,7 +216,7 @@ Speed + delta -> Multiply -- amount --> Make Vec3 -> Transform.Translate
 Speed + delta -> Multiply -> Set Local amount -> Get Local amount -> Make Vec3 -> Transform.Translate
 ```
 
-局部变量默认不显示运行时数值。只有断点命中、单步、Watch 或 Pin Inspect 时，才采集和显示局部变量值。
+局部变量默认不显示运行时数值。只有断点命中、单步，或 Watch / Pin Inspect 观察者打开时，才采集和显示局部变量值。
 
 ## 身份与重命名
 
@@ -326,8 +326,8 @@ if (__ash_tmp0)
 
 约束：
 
-- `DebugProbe.Enter(probeId)` 只报告执行位置和查询动态断点表，不能改变表达式语义。
-- `DebugProbe.Value(probeId, pinId, value)` 只在 Watch、Pin Inspect 或 value-instrumented debug build 中插入。
+- `DebugProbe.Enter(probeId)` 只在 Trace 观察打开时报告执行位置，并始终可查询动态断点表，不能改变表达式语义。
+- `DebugProbe.Value(probeId, pinId, value)` 只在 Watch、Pin Inspect 或 value-instrumented debug build 中插入；插入不代表后台默认记录，运行时仍由观察开关决定是否写 value event。
 - `probeId` 来自 `ProbeManifest`，manifest 再映射到 graph node、source span 和 pin。
 - 字段值不插 `Value` probe，字段由 Inspector 读取挂载实例。
 - `#line` / PDB / SourceMap 必须让临时代码诊断回到原 `.ash.cs` span。
@@ -365,7 +365,7 @@ GraphDebug.Watch("speed", Speed);
 - `GraphDebug.Inspect<T>(name, value)` 返回 `value`，因此可以包住表达式。
 - `GraphDebug.Watch<T>(name, value)` 只记录观察值，不参与表达式求值结果。
 - 编译器/analyzer 将 `GraphDebug.*` 识别为调试观察节点，绑定到 `probeId` / `pinId` / SourceMap。
-- Debug build 中，rewriter 可把它降到底层 `DebugProbe.Value(probeId, pinId, value)`。
+- Debug build 中，rewriter 可把它降到底层 `DebugProbe.Value(probeId, pinId, value)`；只有 Watch 观察打开时才记录 value event。
 - Release build 中，`Inspect` 应退化为返回原值，`Watch` 应退化为空操作。
 - 手写 `GraphDebug.*` 属于源码，随 `.ash.cs` 保存；蓝图临时 Watch 属于 editor/debug session 或 `.ashlayout`，不改源码。
 - 用户不应直接调用 `DebugProbe.Enter` 或传入底层 `probeId`，这些属于编译产物和 manifest 层。
@@ -494,7 +494,7 @@ Entity + BehaviorId + FieldId
 
 - `Update(float delta)` 的参数、局部变量、表达式临时值、函数返回值和分支结果不是序列化字段。
 - 这些值默认不在蓝图上实时显示。
-- 断点命中、单步、蓝图临时 Watch、Pin Inspect、手写 `GraphDebug.Inspect/Watch` 时，通过 C# 插桩 `DebugProbe.Value(...)` 或 PDB debugger 采集。
+- 断点命中、单步时通过 debugger frame 采集；蓝图临时 Watch、Pin Inspect、手写 `GraphDebug.Inspect/Watch` 只有在对应观察者打开时才通过 C# 插桩 `DebugProbe.Value(...)` 或 PDB debugger 采集。
 - 非暂停运行时默认只显示节点/执行线高亮，不采集所有 pin value。
 
 示例插桩形状：
@@ -574,8 +574,8 @@ ScriptDebugMap
 
 ```text
 Breakpoint = 真调试断点，暂停整个 debuggee 进程
-Trace / Watch = 非暂停观测，聚合、采样、限流
-DebugMap = 源码、蓝图、IR、PDB、probe 的唯一映射真相
+Trace / Watch = observer-driven 非暂停观测，有视窗/客户端订阅才采集、聚合、采样、限流
+DebugMap = 源码、蓝图、IR、PDB、probe 的唯一映射真相；可观测不等于默认后台采集
 ```
 
 断点绑定规则：
@@ -584,7 +584,7 @@ DebugMap = 源码、蓝图、IR、PDB、probe 的唯一映射真相
 - 持久化断点保存 `breakpointAnchor`，至少包含 `behaviorId`、`functionId`、源码 span、源码片段 hash、节点/语句类型和 sibling/context ordinal；重编译后通过 DebugMap 重新绑定为 `debugSiteId`。
 - DebugMap 为每个节点标记 `breakabilityHint`、`breakableVerified`、`observable` 和 `owningBreakableDebugSiteId`。
 - `Branch`、statement `Call`、`Assign`、`Return`、statement `Watch` 这类 statement/control 节点可作为可断候选；是否能映射到真实 debugger breakpoint，必须以 PDB/IL 或 debug adapter 返回的 verified breakpoint 为准。
-- `Const`、`GetField`、`GetLocal`、`BinaryOp`、`MakeStruct` 等表达式节点通常共享外层语句的 PDB sequence point；它们默认用于高亮、Trace、Watch 或 Pin Inspect，设置断点时自动落到 `owningBreakableDebugSiteId`。
+- `Const`、`GetField`、`GetLocal`、`BinaryOp`、`MakeStruct` 等表达式节点通常共享外层语句的 PDB sequence point；它们可用于高亮、Trace、Watch 或 Pin Inspect，但 Trace/Watch 只有在观察视窗或客户端订阅打开后才采集，设置断点时自动落到 `owningBreakableDebugSiteId`。
 - 代码侧断点以 debugger 返回的 verified breakpoint 或命中时 frame 的实际 PDB sequence point 为事实；请求位置只是用户意图。
 - 用户把断点打在 `{`、空行、注释或不可执行 token 上时，DebugSession 先使用 debugger verified location；若后端没有返回精确 verified location，再用 Roslyn SyntaxTree 归一化到所属 block 的 owning breakable site：方法体 `{` 对应 Event/Entry 或 source-only，`if` 的 `{` 对应 Branch，`else {` 对应 Branch 的 else arm，普通 block `{` 对应 block 内第一条可执行语句。
 - 如果实际暂停位置无法映射到蓝图节点，源码编辑器仍高亮当前位置，蓝图显示 `source-only` 状态。
@@ -610,11 +610,11 @@ Graph breakpoint
 
 职责划分：
 
-- `DebugProbe.Enter(debugSiteId/probeId)` 只负责低成本执行位置上报、Trace 聚合和动态观察开关；不作为普通暂停断点的主路径。
+- `DebugProbe.Enter(debugSiteId/probeId)` 只负责低成本执行位置上报、Trace 观察打开后的聚合和动态观察开关；不作为普通暂停断点的主路径。
 - `ScriptDebugMap` 负责 `graphNodeId(current) -> debugSiteId -> .ash.cs span -> method/sequence point/IL offset -> probeId(optional)` 映射。
 - Portable PDB 负责 sequence point、local scope 和 local variable metadata；PDB 本身不保存运行时值。
 - CLR debugger frame 或 DAP 后端负责在暂停帧上读取参数、locals、`this` 和字段值。
-- `DebugProbe.Value(debugSiteId/probeId, pinId, value)` 只保留给手写 `GraphDebug.Inspect/Watch`、蓝图临时 Watch、Pin Inspect 和 PDB 无法稳定表达的表达式临时值。
+- `DebugProbe.Value(debugSiteId/probeId, pinId, value)` 只保留给手写 `GraphDebug.Inspect/Watch`、蓝图临时 Watch、Pin Inspect 和 PDB 无法稳定表达的表达式临时值；即便源码里存在 Watch 声明，也应在 Watch 视窗或客户端订阅打开后才记录值事件。
 
 第一版会话接口按 DAP 形状设计，但不把实现锁死到某一个 adapter：
 
@@ -650,8 +650,8 @@ ScriptDebugSession
 变量显示边界：
 
 - 断点命中后默认显示当前用户脚本帧的 arguments、locals、`this` 字段和 Inspector 字段。
-- 表达式级 pin value 不是所有情况下都有稳定 local slot；只有用户显式 Pin Inspect / Watch 时才按需采集。
-- 非暂停运行时仍只显示执行高亮和字段状态，不连续采集所有变量。
+- 表达式级 pin value 不是所有情况下都有稳定 local slot；只有用户显式 Pin Inspect / Watch 且观察者打开时才按需采集。
+- 非暂停运行时在没有 Trace/Watch 观察者时不连续采集节点命中或变量值；观察者打开后才显示执行热度、字段状态和订阅值摘要。
 
 ## 独立 ScriptLab 原型
 
@@ -842,11 +842,11 @@ public static class Transform
 - 编译产物可由最小 `DebugScriptHost` 承载，并可调用 `Update(0.016f)`。
 - `DebugScriptHost` 可按 `Entity + BehaviorId + FieldId` 读取/写入挂载实例字段。
 - Debug instrumentation rewriter 能在临时 SyntaxTree 写入 `DebugProbe.Enter(probeId)`，probe 事件可通过 ProbeManifest 回查 SourceMap。
-- Debug instrumentation rewriter 能按需写入 `DebugProbe.Value(probeId, pinId, value)`，只服务调试观察。
+- Debug instrumentation rewriter 能按需写入 `DebugProbe.Value(probeId, pinId, value)`，只服务调试观察；运行时是否记录 value event 由 Watch 观察开关决定。
 - 手写 `GraphDebug.Inspect/Watch` 可被 debug rewriter 降为 `DebugProbe.Value`；release/profile build 退化为原值或空操作。
 - 插入的 probe 代码使用 `#line hidden` 或等价机制，Portable PDB sequence point 仍指向用户 `.ash.cs` 的真实 statement。
 - 读取 Portable PDB 并验证 `sourceChecksum`、`assemblyMvid`、`pdbId`、method token、IL offset 和 local scope metadata；验证失败时 DebugMap 不可用于断点绑定。
-- 普通暂停断点通过 `ScriptDebugSession` 设置 debugger source/PDB breakpoint；Trace/Watch 观察开关可以只更新 runtime probe table，不触发重新编译。
+- 普通暂停断点通过 `ScriptDebugSession` 设置 debugger source/PDB breakpoint；Trace/Watch 观察开关可以只更新 runtime probe table，不触发重新编译；没有观察者时后台不聚合 Trace/Watch。
 - hidden probe location 不能作为通用 source breakpoint fallback；只有 source/PDB、DAP instruction breakpoint 或 ICorDebug IL offset breakpoint 可标记为真暂停断点。
 - Source Generator、IL weaving、Profiler/ReJIT 都不在第一版实现范围内。
 - C# probe trace 与 IR verifier 在实验样例上可对比同一调用序列，但 C# 运行结果是权威。
@@ -867,7 +867,7 @@ public static class Transform
 - 当前暂停 frame 的 `Update(float delta)` 参数、当前 locals 和 `this` 字段可通过 debugger frame 读取并显示。
 - 插入的 probe 代码不会成为用户单步时默认停留的位置。
 - IDE/编辑器 Inspector 面板可显示暂停帧变量，并区分 Inspector 字段值、frame locals 和 Watch / Pin Inspect value。
-- 表达式级 pin value 只有显式 Watch / Pin Inspect 时才通过 `DebugProbe.Value` 或等价临时插桩采集。
+- 表达式级 pin value 只有显式 Watch / Pin Inspect 且观察者打开时才通过 `DebugProbe.Value` 或等价临时插桩采集。
 
 ### Phase 10：回接 VkEngine 的进入条件
 

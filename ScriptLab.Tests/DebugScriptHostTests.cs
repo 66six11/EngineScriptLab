@@ -99,6 +99,7 @@ public sealed class DebugScriptHostTests
         var instance = host.MountBehavior(entityId: 1, "com.game.DebugWatch");
 
         host.SetBreakpoint(amountSite.ProbeId, enabled: true);
+        host.SetWatchEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
 
@@ -109,6 +110,38 @@ public sealed class DebugScriptHostTests
         Assert.Contains(host.GetProbeEvents(), probeEvent =>
             probeEvent.Kind == "Breakpoint" &&
             probeEvent.ProbeId == amountSite.ProbeId);
+    }
+
+    [Fact]
+    public void InvokeUpdate_WhenTraceObservationIsDisabled_DoesNotRecordEnterEvents()
+    {
+        var outputDirectory = CreateOutputDirectory();
+        var emit = DebugScriptCompiler.EmitFile(
+            GetSamplePath("PlayerMove.ash.cs"),
+            outputDirectory);
+        var host = DebugScriptHost.Load(emit);
+        var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
+
+        host.ClearProbeEvents();
+        instance.InvokeUpdate(0.016f);
+
+        Assert.Empty(host.GetProbeEvents());
+    }
+
+    [Fact]
+    public void InvokeUpdate_WhenWatchObservationIsDisabled_DoesNotRecordValueEvents()
+    {
+        var outputDirectory = CreateOutputDirectory();
+        var emit = DebugScriptCompiler.EmitFile(
+            GetSamplePath("DebugWatch.ash.cs"),
+            outputDirectory);
+        var host = DebugScriptHost.Load(emit);
+        var instance = host.MountBehavior(entityId: 1, "com.game.DebugWatch");
+
+        host.ClearProbeEvents();
+        instance.InvokeUpdate(0.016f);
+
+        Assert.Empty(host.GetProbeEvents());
     }
 
     private static string CreateOutputDirectory()

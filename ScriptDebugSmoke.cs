@@ -7,7 +7,9 @@ public sealed record ScriptDebugSmokeOptions(
     string? GraphNodeId = null,
     int EntityId = 1,
     float Delta = 0.016f,
-    bool PressKeyW = true);
+    bool PressKeyW = true,
+    bool ObserveTrace = true,
+    bool ObserveWatch = true);
 
 public sealed record ScriptDebugSmokeCheck(
     string Name,
@@ -53,6 +55,10 @@ public static class ScriptDebugSmoke
         var session = new ScriptDebugSession(emit.DebugMap, sourceText);
         var host = DebugScriptHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
+        session.SetTraceObservationEnabled(options.ObserveTrace);
+        session.SetWatchObservationEnabled(options.ObserveWatch);
+        host.SetTraceEnabled(options.ObserveTrace);
+        host.SetWatchEnabled(options.ObserveWatch);
 
         AddCheck(
             checks,

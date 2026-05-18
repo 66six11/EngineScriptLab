@@ -269,10 +269,16 @@ public static class DebugScriptCompiler
                    private static readonly List<DebugProbeEvent> events = new();
                    private static readonly HashSet<int> breakpoints = new();
                    private static long nextSequence;
+                   private static bool traceEnabled;
+                   private static bool watchEnabled;
 
                    public static IReadOnlyList<DebugProbeEvent> Events => events;
 
                    public static IReadOnlySet<int> Breakpoints => breakpoints;
+
+                   public static bool TraceEnabled => traceEnabled;
+
+                   public static bool WatchEnabled => watchEnabled;
 
                    public static void Clear()
                    {
@@ -295,15 +301,33 @@ public static class DebugScriptCompiler
                        breakpoints.Clear();
                    }
 
+                   public static void SetTraceEnabled(bool enabled)
+                   {
+                       traceEnabled = enabled;
+                   }
+
+                   public static void SetWatchEnabled(bool enabled)
+                   {
+                       watchEnabled = enabled;
+                   }
+
                    public static void Enter(int probeId)
                    {
-                       events.Add(new DebugProbeEvent(++nextSequence, "Enter", probeId, null, null));
+                       if (traceEnabled)
+                       {
+                           events.Add(new DebugProbeEvent(++nextSequence, "Enter", probeId, null, null));
+                       }
+
                        ReportBreakpoint(probeId);
                    }
 
                    public static T Value<T>(int probeId, string pinId, T value)
                    {
-                       events.Add(new DebugProbeEvent(++nextSequence, "Value", probeId, pinId, value));
+                       if (watchEnabled)
+                       {
+                           events.Add(new DebugProbeEvent(++nextSequence, "Value", probeId, pinId, value));
+                       }
+
                        ReportBreakpoint(probeId);
                        return value;
                    }

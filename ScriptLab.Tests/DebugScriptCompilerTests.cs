@@ -98,6 +98,7 @@ public sealed class DebugScriptCompilerTests
 
         var debugProbe = assembly.GetType("Asharia.Behavior.DebugProbe", throwOnError: true)!;
         debugProbe.GetMethod("Clear")!.Invoke(null, null);
+        debugProbe.GetMethod("SetTraceEnabled")!.Invoke(null, new object[] { true });
 
         var keyType = assembly.GetType("Asharia.Behavior.Key", throwOnError: true)!;
         var input = assembly.GetType("Asharia.Behavior.Input", throwOnError: true)!;
@@ -141,6 +142,7 @@ public sealed class DebugScriptCompilerTests
 
         var debugProbe = assembly.GetType("Asharia.Behavior.DebugProbe", throwOnError: true)!;
         debugProbe.GetMethod("Clear")!.Invoke(null, null);
+        debugProbe.GetMethod("SetWatchEnabled")!.Invoke(null, new object[] { true });
 
         var behaviorType = assembly.GetType("com.game.DebugWatch", throwOnError: true)!;
         var behavior = Activator.CreateInstance(behaviorType)!;

@@ -45,7 +45,9 @@ public sealed record ScriptLabRunDebugParams(
     IReadOnlyList<string>? GraphNodeIds = null,
     int EntityId = 1,
     float Delta = 0.016f,
-    bool PressKeyW = true);
+    bool PressKeyW = true,
+    bool ObserveTrace = false,
+    bool ObserveWatch = false);
 
 public sealed record ScriptLabLoadGraphResult(
     string ScriptPath,
@@ -282,6 +284,12 @@ public sealed class ScriptLabJsonRpcServer
             current.Host.SetInputKeyDown("W", isDown: true);
         }
 
+        var observeTrace = parameters.ObserveTrace || current.Session.TraceObservationEnabled;
+        var observeWatch = parameters.ObserveWatch || current.Session.WatchObservationEnabled;
+        current.Session.SetTraceObservationEnabled(observeTrace);
+        current.Session.SetWatchObservationEnabled(observeWatch);
+        current.Host.SetTraceEnabled(observeTrace);
+        current.Host.SetWatchEnabled(observeWatch);
         current.Session.ResetProbeEventCursor();
         current.Session.ClearWatchValues();
         current.Session.ClearTrace();
@@ -315,12 +323,18 @@ public sealed class ScriptLabJsonRpcServer
 
     private ScriptPausedSnapshot? GetPausedSnapshot()
     {
-        return RequireState().LastPausedSnapshot;
+        var current = RequireState();
+        current.Session.SetWatchObservationEnabled(true);
+        current.Host.SetWatchEnabled(true);
+        return current.LastPausedSnapshot;
     }
 
     private ScriptTraceSnapshot GetTraceSnapshot()
     {
-        return RequireState().Session.GetTraceSnapshot();
+        var current = RequireState();
+        current.Session.SetTraceObservationEnabled(true);
+        current.Host.SetTraceEnabled(true);
+        return current.Session.GetTraceSnapshot();
     }
 
     private ServerState RequireState()

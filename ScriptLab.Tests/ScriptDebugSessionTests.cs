@@ -314,6 +314,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
+        host.SetWatchEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         instance.SetFieldValue("Speed", 8.0f);
@@ -356,6 +357,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
+        host.SetWatchEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         session.RecordWatchValues(host.GetProbeEvents());
@@ -382,6 +384,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
+        host.SetWatchEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         Assert.NotEmpty(session.RecordWatchValues(host.GetProbeEvents()));
@@ -404,6 +407,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
+        host.SetTraceEnabled(true);
         host.SetBreakpointByDebugSiteId(branchSite.DebugSiteId, enabled: true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
@@ -442,6 +446,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit, traceSampleCapacity: 1);
 
+        host.SetTraceEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         instance.InvokeUpdate(0.016f);
@@ -468,6 +473,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
+        host.SetWatchEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
 
@@ -487,6 +493,7 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
+        host.SetTraceEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         Assert.NotEmpty(session.RecordTraceEvents(host.GetProbeEvents()).Sites);
@@ -509,6 +516,8 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
+        host.SetTraceEnabled(true);
+        session.SetTraceObservationEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         var first = session.IngestProbeEvents(host.GetProbeEvents());
@@ -531,6 +540,25 @@ public sealed class ScriptDebugSessionTests
     }
 
     [Fact]
+    public void IngestProbeEvents_WhenTraceObserverIsDisabled_DoesNotAggregateTrace()
+    {
+        var emit = EmitPlayerMove();
+        var host = DebugScriptHost.Load(emit);
+        var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
+        var session = CreateSession(emit);
+
+        host.SetTraceEnabled(true);
+        host.ClearProbeEvents();
+        instance.InvokeUpdate(0.016f);
+
+        var ingest = session.IngestProbeEvents(host.GetProbeEvents());
+
+        Assert.Equal(1, ingest.ProcessedCount);
+        Assert.Equal(0, ingest.TraceSnapshot.Sequence);
+        Assert.Empty(ingest.TraceSnapshot.Sites);
+    }
+
+    [Fact]
     public void IngestProbeEvents_WhenSameWatchLogIsPolledTwice_DoesNotDoubleCount()
     {
         var emit = EmitDebugWatch();
@@ -538,6 +566,8 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
+        host.SetWatchEnabled(true);
+        session.SetWatchObservationEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         var first = session.IngestProbeEvents(host.GetProbeEvents());
@@ -554,6 +584,24 @@ public sealed class ScriptDebugSessionTests
         Assert.Equal(1, amount.HitCount);
         Assert.Equal(1, amount.Sequence);
         Assert.Equal("0.064", amount.DisplayValue);
+    }
+
+    [Fact]
+    public void IngestProbeEvents_WhenWatchObserverIsDisabled_DoesNotAggregateWatchValues()
+    {
+        var emit = EmitDebugWatch();
+        var host = DebugScriptHost.Load(emit);
+        var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
+        var session = CreateSession(emit);
+
+        host.SetWatchEnabled(true);
+        host.ClearProbeEvents();
+        instance.InvokeUpdate(0.016f);
+
+        var ingest = session.IngestProbeEvents(host.GetProbeEvents());
+
+        Assert.Equal(2, ingest.ProcessedCount);
+        Assert.Empty(ingest.WatchVariables);
     }
 
     [Fact]
@@ -575,7 +623,7 @@ public sealed class ScriptDebugSessionTests
         Assert.Equal(ScriptStoppedEventStatus.Resolved, stopped.Status);
         Assert.Equal(branchSite.DebugSiteId, stopped.DebugSiteId);
         Assert.True(stopped.Synthetic);
-        Assert.Equal(2, first.ProcessedCount);
+        Assert.Equal(1, first.ProcessedCount);
         Assert.Empty(second.StoppedEvents);
         Assert.Equal(0, second.ProcessedCount);
     }
@@ -589,6 +637,8 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
+        host.SetTraceEnabled(true);
+        session.SetTraceObservationEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         var first = session.IngestProbeEvents(host.GetProbeEvents());
@@ -615,6 +665,8 @@ public sealed class ScriptDebugSessionTests
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
+        host.SetTraceEnabled(true);
+        session.SetTraceObservationEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
         session.IngestProbeEvents(host.GetProbeEvents());

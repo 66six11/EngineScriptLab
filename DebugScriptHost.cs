@@ -157,6 +157,20 @@ public sealed class DebugScriptHost
             .Invoke(null, null);
     }
 
+    public void SetTraceEnabled(bool enabled)
+    {
+        GetDebugProbeType()
+            .GetMethod("SetTraceEnabled", BindingFlags.Public | BindingFlags.Static)!
+            .Invoke(null, new object[] { enabled });
+    }
+
+    public void SetWatchEnabled(bool enabled)
+    {
+        GetDebugProbeType()
+            .GetMethod("SetWatchEnabled", BindingFlags.Public | BindingFlags.Static)!
+            .Invoke(null, new object[] { enabled });
+    }
+
     public IReadOnlyList<int> GetBreakpointProbeIds()
     {
         var breakpoints = (System.Collections.IEnumerable)GetDebugProbeType()

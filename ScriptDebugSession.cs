@@ -196,6 +196,8 @@ public sealed class ScriptDebugSession
     private int droppedTraceSamples;
     private int probeEventCursor;
     private long lastIngestedProbeSequence;
+    private bool traceObservationEnabled;
+    private bool watchObservationEnabled;
 
     public ScriptDebugSession(ScriptDebugMap debugMap, string sourceText, int traceSampleCapacity = 256)
     {
@@ -225,6 +227,10 @@ public sealed class ScriptDebugSession
     public string BehaviorId => debugMap.BehaviorId;
 
     public string SourceDocumentPath => debugMap.SourceDocumentPath;
+
+    public bool TraceObservationEnabled => traceObservationEnabled;
+
+    public bool WatchObservationEnabled => watchObservationEnabled;
 
     public IReadOnlyList<ScriptBreakpointState> SetSourceBreakpoints(
         string filePath,
@@ -381,8 +387,15 @@ public sealed class ScriptDebugSession
         {
             var probeEvent = probeEvents[index];
             processedCount++;
-            RecordWatchValue(probeEvent);
-            RecordTraceEvent(probeEvent);
+            if (watchObservationEnabled)
+            {
+                RecordWatchValue(probeEvent);
+            }
+
+            if (traceObservationEnabled)
+            {
+                RecordTraceEvent(probeEvent);
+            }
 
             var stoppedEvent = ResolveStoppedEvent(probeEvent);
             if (stoppedEvent.Status != ScriptStoppedEventStatus.Ignored)
@@ -407,6 +420,24 @@ public sealed class ScriptDebugSession
     {
         probeEventCursor = 0;
         lastIngestedProbeSequence = 0;
+    }
+
+    public void SetTraceObservationEnabled(bool enabled)
+    {
+        traceObservationEnabled = enabled;
+        if (!enabled)
+        {
+            ClearTrace();
+        }
+    }
+
+    public void SetWatchObservationEnabled(bool enabled)
+    {
+        watchObservationEnabled = enabled;
+        if (!enabled)
+        {
+            ClearWatchValues();
+        }
     }
 
     public IReadOnlyList<ScriptDebugVariable> RecordWatchValues(IEnumerable<DebugRuntimeProbeEvent> probeEvents)
