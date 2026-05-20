@@ -5,6 +5,44 @@ namespace ScriptLab.Tests;
 public sealed class ScriptDebugSessionTests
 {
     [Fact]
+    public void Constructor_WhenDebugMapSchemaVersionDoesNotMatch_Throws()
+    {
+        var emit = EmitPlayerMove();
+        var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
+        var invalidMap = emit.DebugMap with { SchemaVersion = 2 };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new ScriptDebugSession(invalidMap, sourceText, emit.DebugMap.SourceDocumentPath));
+
+        Assert.Contains("schema version", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Constructor_WhenSourceChecksumDoesNotMatch_Throws()
+    {
+        var emit = EmitPlayerMove();
+        var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath) + Environment.NewLine;
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath));
+
+        Assert.Contains("source checksum", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Constructor_WhenSourcePathDoesNotMatch_Throws()
+    {
+        var emit = EmitPlayerMove();
+        var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
+        var otherPath = Path.Combine(Path.GetDirectoryName(emit.DebugMap.SourceDocumentPath)!, "Other.ash.cs");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new ScriptDebugSession(emit.DebugMap, sourceText, otherPath));
+
+        Assert.Contains("source document path", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ResolveBlueprintBreakpoint_WhenNodeIsVerified_ReturnsVerifiedDebugSite()
     {
         var emit = EmitPlayerMove();
@@ -35,6 +73,49 @@ public sealed class ScriptDebugSessionTests
         Assert.Equal(translateSite.GraphNodeId, binding.GraphNodeId);
         Assert.Contains(binding.Candidates, candidate => candidate.DebugSiteId == multiplySite.DebugSiteId);
         Assert.Contains(binding.Candidates, candidate => candidate.DebugSiteId == translateSite.DebugSiteId);
+    }
+
+    [Fact]
+    public void SetBlueprintBreakpoints_WhenNodeBindsToOwningStatement_KeepsAnchorForRequestedGraphNode()
+    {
+        var emit = EmitPlayerMove();
+        var multiplySite = FindSite(emit.DebugMap, "BinaryOp", "Multiply");
+        var translateSite = FindSite(emit.DebugMap, "Call", "asharia.transform.translate");
+        var session = CreateSession(emit);
+
+        var breakpoint = Assert.Single(session.SetBlueprintBreakpoints(new[] { multiplySite.GraphNodeId }));
+
+        Assert.Equal(ScriptBreakpointBindingStatus.Bound, breakpoint.Status);
+        Assert.Equal(translateSite.DebugSiteId, breakpoint.DebugSiteId);
+        Assert.NotNull(breakpoint.Anchor);
+        Assert.Equal("com.game.PlayerMove", breakpoint.Anchor.BehaviorId);
+        Assert.Equal("Update", breakpoint.Anchor.FunctionId);
+        Assert.Equal("BinaryOp", breakpoint.Anchor.Kind);
+        Assert.Equal("Multiply", breakpoint.Anchor.Label);
+        Assert.Equal(multiplySite.SourceSpan, breakpoint.Anchor.SourceSpan);
+        Assert.Equal(multiplySite.SourceTextHash, breakpoint.Anchor.SourceTextHash);
+        Assert.True(breakpoint.Anchor.SiblingOrdinal >= 0);
+    }
+
+    [Fact]
+    public void SetSourceBreakpoints_WhenBreakpointIsVerified_AddsAnchorForResolvedSite()
+    {
+        var emit = EmitPlayerMove();
+        var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
+        var session = CreateSession(emit);
+
+        var breakpoint = Assert.Single(session.SetSourceBreakpoints(
+            emit.DebugMap.SourceDocumentPath,
+            new[] { new ScriptSourceBreakpointRequest(12, 9) }));
+
+        Assert.Equal(ScriptBreakpointBindingStatus.Verified, breakpoint.Status);
+        Assert.NotNull(breakpoint.Anchor);
+        Assert.Equal("com.game.PlayerMove", breakpoint.Anchor.BehaviorId);
+        Assert.Equal("Update", breakpoint.Anchor.FunctionId);
+        Assert.Equal("Branch", breakpoint.Anchor.Kind);
+        Assert.Equal("Branch", breakpoint.Anchor.Label);
+        Assert.Equal(branchSite.SourceSpan, breakpoint.Anchor.SourceSpan);
+        Assert.Equal(branchSite.SourceTextHash, breakpoint.Anchor.SourceTextHash);
     }
 
     [Fact]
@@ -254,14 +335,21 @@ public sealed class ScriptDebugSessionTests
         host.SetFieldValue(101, "com.game.PlayerMove", "Speed", "8.5");
         var session = CreateSession(emit);
         var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: true);
+        var backend = new FakeFrameVariableBackend(new ScriptFrameVariableSnapshot(
+            Available: true,
+            Reason: "Should not be read for synthetic stops.",
+            Arguments: Array.Empty<ScriptDebugVariable>(),
+            Locals: Array.Empty<ScriptDebugVariable>(),
+            ThisVariables: Array.Empty<ScriptDebugVariable>()));
 
-        var snapshot = session.ReadPausedSnapshot(host, stopped, entityId: 101);
+        var snapshot = session.ReadPausedSnapshot(host, stopped, entityId: 101, frameVariables: backend);
 
         Assert.Equal(ScriptPausedSnapshotStatus.Partial, snapshot.Status);
         Assert.True(snapshot.Synthetic);
         Assert.Equal("com.game.PlayerMove", snapshot.BehaviorId);
         Assert.Equal(101, snapshot.EntityId);
         Assert.Same(stopped, snapshot.StoppedEvent);
+        Assert.Equal(0, backend.CallCount);
 
         AssertScopeUnavailable(snapshot, ScriptDebugScopeKind.Arguments);
         AssertScopeUnavailable(snapshot, ScriptDebugScopeKind.Locals);
@@ -302,6 +390,114 @@ public sealed class ScriptDebugSessionTests
             Assert.Empty(scope.Variables);
             Assert.Contains("not resolved", scope.Reason, StringComparison.Ordinal);
         });
+    }
+
+    [Fact]
+    public void ReadPausedSnapshot_WhenRealStopHasNoFrameBackend_ReturnsUnavailableFrameScopes()
+    {
+        var emit = EmitPlayerMove();
+        var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
+        var host = DebugScriptHost.Load(emit);
+        host.MountBehavior(entityId: 101, "com.game.PlayerMove");
+        var session = CreateSession(emit);
+        var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: false);
+
+        var snapshot = session.ReadPausedSnapshot(host, stopped, entityId: 101);
+
+        Assert.Equal(ScriptPausedSnapshotStatus.Partial, snapshot.Status);
+        Assert.False(snapshot.Synthetic);
+
+        foreach (var kind in new[] { ScriptDebugScopeKind.Arguments, ScriptDebugScopeKind.Locals, ScriptDebugScopeKind.This })
+        {
+            var scope = Assert.Single(snapshot.Scopes, candidate => candidate.Kind == kind);
+            Assert.False(scope.Available);
+            Assert.Empty(scope.Variables);
+            Assert.Contains("backend is not connected", scope.Reason, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void ReadPausedSnapshot_WhenRealStopHasFrameBackend_ReturnsFrameScopes()
+    {
+        var emit = EmitPlayerMove();
+        var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
+        var host = DebugScriptHost.Load(emit);
+        host.MountBehavior(entityId: 101, "com.game.PlayerMove");
+        var session = CreateSession(emit);
+        var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: false);
+        var backend = new FakeFrameVariableBackend(new ScriptFrameVariableSnapshot(
+            Available: true,
+            Reason: "Frame variables read from debugger backend.",
+            Arguments: new[]
+            {
+                new ScriptDebugVariable(
+                    Name: "delta",
+                    VariableId: "frame:arg:delta",
+                    Type: "float",
+                    DisplayValue: "0.016",
+                    RawValue: 0.016f,
+                    BehaviorId: null,
+                    EntityId: null,
+                    FieldId: null,
+                    Accessibility: null,
+                    Serialization: null,
+                    Writable: false)
+            },
+            Locals: new[]
+            {
+                new ScriptDebugVariable(
+                    Name: "amount",
+                    VariableId: "frame:local:amount",
+                    Type: "float",
+                    DisplayValue: "0.128",
+                    RawValue: 0.128f,
+                    BehaviorId: null,
+                    EntityId: null,
+                    FieldId: null,
+                    Accessibility: null,
+                    Serialization: null,
+                    Writable: false)
+            },
+            ThisVariables: new[]
+            {
+                new ScriptDebugVariable(
+                    Name: "Speed",
+                    VariableId: "frame:this:Speed",
+                    Type: "float",
+                    DisplayValue: "8.5",
+                    RawValue: 8.5f,
+                    BehaviorId: "com.game.PlayerMove",
+                    EntityId: 101,
+                    FieldId: "Speed",
+                    Accessibility: "public",
+                    Serialization: "public",
+                    Writable: false)
+            }));
+
+        var snapshot = session.ReadPausedSnapshot(host, stopped, entityId: 101, frameVariables: backend);
+
+        Assert.Equal(1, backend.CallCount);
+        Assert.Same(stopped, backend.LastStoppedEvent);
+
+        var arguments = Assert.Single(snapshot.Scopes, scope => scope.Kind == ScriptDebugScopeKind.Arguments);
+        Assert.True(arguments.Available);
+        var delta = Assert.Single(arguments.Variables);
+        Assert.Equal("delta", delta.Name);
+        Assert.Equal("float", delta.Type);
+        Assert.Equal("0.016", delta.DisplayValue);
+
+        var locals = Assert.Single(snapshot.Scopes, scope => scope.Kind == ScriptDebugScopeKind.Locals);
+        Assert.True(locals.Available);
+        var amount = Assert.Single(locals.Variables);
+        Assert.Equal("amount", amount.Name);
+        Assert.Equal(0.128f, amount.RawValue);
+
+        var thisScope = Assert.Single(snapshot.Scopes, scope => scope.Kind == ScriptDebugScopeKind.This);
+        Assert.True(thisScope.Available);
+        var speed = Assert.Single(thisScope.Variables);
+        Assert.Equal("Speed", speed.Name);
+        Assert.Equal("frame:this:Speed", speed.VariableId);
+        Assert.False(speed.Writable);
     }
 
     [Fact]
@@ -688,11 +884,33 @@ public sealed class ScriptDebugSessionTests
         Assert.Empty(scope.Variables);
     }
 
+    private sealed class FakeFrameVariableBackend : IScriptFrameVariableBackend
+    {
+        private readonly ScriptFrameVariableSnapshot snapshot;
+
+        public FakeFrameVariableBackend(ScriptFrameVariableSnapshot snapshot)
+        {
+            this.snapshot = snapshot;
+        }
+
+        public int CallCount { get; private set; }
+
+        public ScriptStoppedEvent? LastStoppedEvent { get; private set; }
+
+        public ScriptFrameVariableSnapshot ReadVariables(ScriptStoppedEvent stoppedEvent)
+        {
+            CallCount++;
+            LastStoppedEvent = stoppedEvent;
+            return snapshot;
+        }
+    }
+
     private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit, int traceSampleCapacity = 256)
     {
         return new ScriptDebugSession(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath),
+            emit.DebugMap.SourceDocumentPath,
             traceSampleCapacity);
     }
 

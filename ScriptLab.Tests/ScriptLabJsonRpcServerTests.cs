@@ -139,7 +139,8 @@ public sealed class ScriptLabJsonRpcServerTests
             .GetProperty("backendResults")
             .EnumerateArray());
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, backend.GetProperty("status").GetString());
-        Assert.True(backend.GetProperty("verified").GetBoolean());
+        Assert.False(backend.GetProperty("verified").GetBoolean());
+        Assert.True(backend.GetProperty("synthetic").GetBoolean());
 
         using var run = Send(server, 2, "runDebug", new { });
         var stopped = run.RootElement.GetProperty("result").GetProperty("stoppedEvent");
@@ -194,6 +195,8 @@ public sealed class ScriptLabJsonRpcServerTests
         Assert.Equal(ScriptBreakpointBindingStatus.Verified, breakpoint.GetProperty("status").GetString());
         Assert.True(breakpoint.GetProperty("hasSourceOrigin").GetBoolean());
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, backend.GetProperty("status").GetString());
+        Assert.False(backend.GetProperty("verified").GetBoolean());
+        Assert.True(backend.GetProperty("synthetic").GetBoolean());
         Assert.Equal("Branch", result
             .GetProperty("stoppedEvent")
             .GetProperty("binding")

@@ -434,6 +434,12 @@ Inspector 是引擎对象模型概念。
 
 Watch 是用户观测概念。
 
+当前实现边界：
+
+- `ScriptDebugSession.ReadPausedSnapshot` 已预留 `IScriptFrameVariableBackend`，真实 debugger stop 可通过该接口填充 Arguments、Locals、This。
+- synthetic probe stop 永远不调用 frame variable backend；它只能显示 Inspector 和 Watch / Pin Inspect。
+- 未接入 frame variable backend 的真实 debugger stop 会把 Arguments、Locals、This 标记为 unavailable，而不是用 Inspector 或 Watch 值伪装。
+
 这三者不能混成一种变量来源，否则会造成：
 
 - 用户以为某个值来自真实暂停 frame，但其实只是上一次 probe 采样。
@@ -505,6 +511,15 @@ Graph C# 的语义解释必须留在 DebugMap / DebugSession。
 initialize
   -> capabilities
   -> 根据能力启用功能
+```
+
+当前 `DapBreakpointBackendCapabilities` 明确读取：
+
+```text
+supportsConditionalBreakpoints
+supportsHitConditionalBreakpoints
+supportsBreakpointLocationsRequest
+supportsInstructionBreakpoints
 ```
 
 如果不支持条件断点：
@@ -620,6 +635,12 @@ debugger stopped
 - DAP 不支持条件断点：unsupported。
 - 没有 Watch 采样：Watch scope unavailable。
 
+后端结果里的 `verified` 只表示真实 debugger / DAP backend 验证过断点位置。
+probe backend 成功启用断点时只能返回 `applied + synthetic`，不能把 synthetic probe stop 标记为 verified。
+
+`ScriptDebugSession` 创建时必须先校验 DebugMap schema、source path 和 source checksum。
+校验失败时不能继续解析断点、Trace、Watch 或 paused snapshot。
+
 不应该做的降级：
 
 - 把 hidden probe location 伪装成真 source breakpoint。
@@ -732,7 +753,47 @@ IDE / Rider / standalone editor
 
 只要这些边界稳定，后续无论接 Rider、独立编辑器、还是引擎内 editor，调试模型都不会重写。
 
-## 23. 节点扩展方向（未经验证）
+## 23. 后续扩展架构讨论（未经验证）
+本章把后续讨论统一收敛为一个独立研究点：如何从真实 C# 能力、项目索引、第三方 DLL 和用户代码中生成可蓝图化节点，并保证这些节点最终仍能回到源码、调试和写回流程。
+
+这些内容不属于当前 V1 调试闭环的完成条件。当前 V1 只要求证明 `debugSiteId -> DebugMap -> Breakpoint / Trace / Watch / Paused Frame` 这条链路成立；本章记录的是后续可演进方向，均为未经验证的架构假设。
+
+本章统一覆盖四类问题：
+- 能力发现：用户方法、插件、第三方 DLL、项目索引。
+- 能力约定：Blueprint Contract、签名可蓝图化、Unknown Effect。
+- 图形表达：黑盒节点、构造节点、`new`、局部变量、作用域子图。
+- 写回与调试：顺序屏障、保存后元数据、DebugMap 回填。
+
+本章的默认约束是：
+
+```text
+能发现 API
+  不等于能自动注册为蓝图节点
+
+能注册为蓝图节点
+  不等于能展开成可编辑子图
+
+能显示成黑盒节点
+  不等于能 pin 级 Watch、Trace 或安全重排
+```
+
+因此后续实现必须把 V2+ 能力拆成三个门：
+
+```text
+Candidate
+  索引扫描得到的符号、方法、类型、构造函数或宏。
+
+Opaque Graph Symbol
+  签名可表达，可作为黑盒节点调用，但 body 不归蓝图写回系统拥有。
+
+Full Graph Symbol
+  签名和方法体都满足 Graph Contract，可展开、编辑、写回和逐节点调试。
+```
+
+只有 `Full Graph Symbol` 才能进入“蓝图编辑即源码编辑”的强语义路径。
+`Opaque Graph Symbol` 可以用于搜索、调用、源码定位和 Step Into，但不能让蓝图写回系统假装拥有其内部语义。
+
+### 23.1 节点扩展方向
 
 以下内容是目前讨论形成的设计方向，尚未经过实现、测试或真实项目验证。
 
@@ -775,7 +836,7 @@ Debug contract
 
 节点 UI、pin、搜索、文档、断点和 DebugMap 都从这些描述派生。
 
-## 24. 插件能力自动引入（未经验证）
+### 23.2 插件能力自动引入
 
 插件可以自动向蓝图系统提供节点，但前提是插件必须声明并满足蓝图约定。
 
@@ -818,7 +879,7 @@ Macro Extension
   暴露快捷组合逻辑，可展开为 Graph C# / IR / 子图
 ```
 
-## 25. Blueprint Contract（未经验证）
+### 23.3 Blueprint Contract
 
 插件或用户方法想自动进入蓝图系统，需要满足一套 Blueprint Contract / Graph Contract。
 
@@ -849,7 +910,19 @@ Macro Extension
 
 普通插件可以只给代码使用。只有声明并通过约定校验的能力，才进入蓝图节点系统。
 
-## 26. 所有 C# 的承载分级（未经验证）
+插件接入时需要保留两个注册结果：
+
+```text
+Discovery result
+  插件或程序集里能找到什么。
+
+Contract result
+  哪些能力通过 Graph Contract，可以进入蓝图 palette。
+```
+
+如果插件 manifest 缺少 effect、context、稳定 ID 或迁移信息，可以保留为诊断候选，但不能静默注册为可写回节点。
+
+### 23.4 所有 C# 的承载分级
 
 更准确的目标不是“所有 C# 都能展开成蓝图”，而是：
 
@@ -882,7 +955,25 @@ Level 3: Full Graph
 - 语句碎片的输入输出、局部变量捕获、副作用和控制流更难稳定推断。
 - 方法黑盒可以自然支持 Step Into 源码。
 
-## 27. 用户 helper method 自动节点（未经验证）
+不同级别允许的能力必须明确限制：
+
+```text
+Level 0 Source-only
+  只提供源码诊断、源码定位和普通 IDE 调试。
+
+Level 1 Opaque Code Block
+  可以高亮源码范围，但不生成稳定 pin，不支持蓝图写回内部语义。
+
+Level 2 Callable Black Box
+  可以生成输入/输出 pin 和执行 pin；可以断在调用边界；Step Into 回到源码或反编译位置。
+
+Level 3 Full Graph
+  可以生成内部节点、pin 级 Watch、Trace、断点归一化、DebugMap 和写回。
+```
+
+UI 不应把 Level 1/2 显示成可编辑内部图。黑盒节点的可读性来自签名、文档和调用边界，而不是伪造内部节点。
+
+### 23.5 用户 helper method 自动节点
 
 用户自己写的 helper method 可以自动成为蓝图节点，不需要手写节点描述。
 
@@ -939,7 +1030,19 @@ UnknownEffect / OpaqueImpure
 
 它可以显示成节点，但必须带执行 pin，不能当 pure 表达式随意重排。
 
-## 28. 签名可蓝图化定义（未经验证）
+helper method 的身份需要分成缓存身份和持久身份：
+
+```text
+缓存身份
+  document path + containing type + method name + parameter type list + arity
+
+持久身份
+  显式 [GraphCallable("stable.id")] 或项目索引生成并可迁移的 methodId
+```
+
+没有显式稳定 ID 的 helper method 可以先作为当前工程内候选节点使用，但断点、布局和跨文件引用不能只依赖文件路径或方法名。重命名、移动文件、partial class 合并、namespace 变化和 overload 调整都必须触发重绑或迁移诊断。
+
+### 23.6 签名可蓝图化定义
 
 “签名可蓝图化”指方法边界能不能稳定表达为蓝图节点。
 
@@ -968,6 +1071,22 @@ out 参数第一版可禁用，后续可映射为输出 pin
 返回值最多一个，tuple 需要明确拆 pin 支持
 ```
 
+签名通过后还需要产生一个最小 Contract 输出：
+
+```text
+symbolId
+displayName
+inputPins
+outputPins
+effect
+context
+debugCapabilities
+migrationIds
+contractHash
+```
+
+`contractHash` 只描述调用边界。方法体变化只应改变 `bodyHash`，不应让已有调用点丢失 pin；签名、effect、context 或 pin 类型变化才需要更新调用点诊断和连线。
+
 允许示例：
 
 ```csharp
@@ -988,7 +1107,7 @@ private void OnDone(Action callback)
 private object GetAnything()
 ```
 
-## 29. 自动发现与增量索引（未经验证）
+### 23.7 自动发现与增量索引
 
 用户方法、项目工具方法、插件方法、类型描述和宏节点不应该每次全量查询。
 
@@ -1052,7 +1171,20 @@ hash:
   -> 尝试 rename tracking / migration
 ```
 
-## 30. 构造函数与 new 表达式（未经验证）
+索引缓存必须记录输入来源和失效原因：
+
+```text
+source file changed
+assembly identity changed
+plugin manifest changed
+schema version changed
+Graph Contract version changed
+engine binding version changed
+```
+
+失效后不能沿用旧的 `debugSiteId`、旧 pin id 或旧 PDB 位置。索引只负责重新生成候选和 contract，断点、布局和 Watch 需要通过 semantic anchor 重新绑定。
+
+### 23.8 构造函数与 new 表达式
 
 `new` 也可以蓝图化，但不能默认允许任意 C# class。
 
@@ -1071,6 +1203,24 @@ new EngineObject / Component / Entity
 new UnknownClass(...)
   -> source-only 或提示 Extract Method
 ```
+
+构造节点还必须声明对象语义：
+
+```text
+Value
+  值类型或不可变数据，适合 Make Value 节点。
+
+OwnedData
+  当前脚本实例拥有的可序列化数据，需要明确保存和复制规则。
+
+RuntimeObject
+  引擎对象、组件、实体、资源句柄，不能直接 new，必须走 Spawn / AddComponent / Factory / Asset load。
+
+ExternalObject
+  第三方引用对象，默认 Opaque，不能假设可序列化或可跨帧保存。
+```
+
+蓝图系统不能只根据 `new` 的语法形态决定节点类型，必须由 `TypeId`、构造 contract 和 ownership/lifetime 规则共同决定。
 
 多个构造方法用稳定身份区分：
 
@@ -1097,7 +1247,7 @@ InventoryItem.CreatePotion(id)
 
 因为 factory method 比 constructor 更适合蓝图搜索、命名和文档。
 
-## 31. new 结果接局部变量（未经验证）
+### 23.9 new 结果接局部变量
 
 代码：
 
@@ -1138,7 +1288,7 @@ LoadLocal item
 用户给变量设置断点或显式 Promote to Local
 ```
 
-## 32. 类、方法与作用域子图（未经验证）
+### 23.10 类、方法与作用域子图
 
 方法和类不仅是节点来源，也应该是作用域容器。
 
@@ -1196,7 +1346,7 @@ Field
 Step Into 才进入方法源码或子图
 ```
 
-## 33. 蓝图写回代码顺序（未经验证）
+### 23.11 蓝图写回代码顺序
 
 蓝图写回 C# 时，顺序不能来自节点坐标。
 
@@ -1255,7 +1405,7 @@ Unknown / OpaqueImpure
 10. Formatter 格式化局部范围
 ```
 
-## 34. 保存写回与新增节点元数据（未经验证）
+### 23.12 保存写回与新增节点元数据
 
 蓝图编辑时可以使用临时元数据，保存后再生成权威元数据。
 
@@ -1313,9 +1463,56 @@ breakableVerified
 
 这些必须来自 debug compile 和真实 PDB / debugger 结果。
 
-## 35. 第三方 DLL 扫描与宽松引入（未经验证）
+Compiled DebugMap 的可用性必须由构建校验字段决定：
+
+```text
+buildId
+sourceChecksum
+assemblyMvid
+pdbId
+schemaVersion
+Graph Contract version
+```
+
+任一字段不匹配时，Compiled DebugMap 立即失效：
+
+```text
+失效后
+  不能沿用旧 PDB sequence point
+  不能沿用旧 IL offset
+  不能把旧 breakableVerified 当成事实
+  不能用旧 probeId 重新绑定断点
+
+允许保留
+  breakpointAnchor
+  layout anchor
+  Watch anchor
+  用户选择和临时 UI 状态
+```
+
+当前 V1 的 `ScriptBreakpointState` 已生成 `breakpointAnchor`，只表达用户原始断点意图。
+它不等于当前 `debugSiteId`，也不表示跨构建重绑定算法已经完成。
+
+重新编译后，断点和 Watch 必须先通过 `breakpointAnchor` / semantic anchor 绑定到新的 `debugSiteId`，再由新的 Compiled DebugMap 绑定到真实 PDB / backend breakpoint。
+
+### 23.13 第三方 DLL 扫描与宽松引入
 
 第三方 DLL 可以像 IDE 一样扫描，建立项目级索引，而不是每次蓝图打开时临时反射。
+
+宽松引入应分三段：
+
+```text
+Scan
+  读取符号和 metadata，生成候选。
+
+Classify
+  判断签名、类型、effect、context、debug capability。
+
+Register
+  只把通过最低 Graph Contract 的候选加入 palette。
+```
+
+第三方 DLL 默认不能生成 `Full Graph Symbol`。除非同时拥有源码、Graph Contract、可分析方法体和写回策略，否则只能作为 Opaque / UnknownEffect 调用边界。
 
 扫描目标：
 
@@ -1409,7 +1606,7 @@ Adapter 草案生成器
 
 而不是严格安全审计器。
 
-## 36. 索引驱动注册（未经验证）
+### 23.14 索引驱动注册
 
 有项目索引后，可以由索引直接生成注册表，但要区分：
 
@@ -1448,7 +1645,22 @@ UnknownEffect
 
 这允许用户快速使用第三方库，同时不让写回系统错误改变执行语义。
 
-## 37. DLL 命名空间与冲突处理（未经验证）
+注册模式建议显式化：
+
+```text
+Strict
+  只有显式 GraphCallable / manifest 声明的符号可进入 palette。
+
+Project
+  当前项目内签名可表达的 helper method 可作为候选，缺少 effect 时为 OpaqueImpure。
+
+Loose
+  第三方 DLL 签名可表达的符号可作为 Opaque / UnknownEffect 候选，但默认不参与自动写回重排。
+```
+
+无论哪种模式，`Registered Graph Symbol` 都必须带来源信息和 contract 诊断。UI 可以让用户看到“为什么这个符号只是候选，为什么不能展开，为什么必须保留执行线”。
+
+### 23.15 DLL 命名空间与冲突处理
 
 DLL 自身已有程序集身份、命名空间、类型全名和方法签名。多数符号冲突可以依赖 CLR / Roslyn / metadata 发现。
 
@@ -1512,7 +1724,7 @@ Geometry.Point
 
 所以不需要因为潜在命名空间冲突而设置过多前置限制。内部使用完整符号身份，UI 层解决可读性。
 
-## 38. Unknown Effect 与写回顺序屏障（未经验证）
+### 23.16 Unknown Effect 与写回顺序屏障
 
 即使安全性不是硬门槛，写回顺序仍然必须保守。
 
@@ -1576,6 +1788,30 @@ pure 表达式
   可以内联或重组，但前提是确认为 pure。
 ```
 
+effect 至少需要形成以下保守格局：
+
+```text
+Pure
+  无副作用，可作为表达式内联。
+
+ReadWorld
+  读取世界或服务状态，不写入；不能跨 MutateWorld/Spawn/Destroy/IO 重排。
+
+MutateWorld
+  修改世界、组件、字段或资源状态，必须保留 exec 顺序。
+
+SpawnDestroy
+  改变对象生命周期，是强顺序屏障。
+
+IO / Blocking / Async
+  访问外部资源、可能阻塞或延迟完成，默认强顺序屏障。
+
+UnknownEffect / OpaqueImpure
+  不知道副作用，按最保守 impure barrier 处理。
+```
+
+写回系统只能在 effect 证明允许时重排。不能因为两个节点看起来只有 data edge，就跨越 Unknown/Opaque 节点合并、内联或交换顺序。
+
 因此宽松引入 API 不等于宽松重排代码。
 
 最低规则：
@@ -1589,3 +1825,30 @@ effect 未知
   -> 保留执行线
   -> 作为写回顺序屏障
 ```
+
+推荐推进顺序：
+
+```text
+1. 固定 V1 调试闭环
+   debugSiteId -> DebugMap -> breakpoint / trace / watch / paused frame
+
+2. 定义 Graph Contract schema
+   FunctionId / TypeId / pins / effect / context / debug capability / migration
+
+3. 建立 effect lattice 和写回 verifier
+   证明哪些节点可内联、哪些节点必须保序
+
+4. 建立 Project Node Index
+   先覆盖当前工程 helper method 和注册类型
+
+5. 支持 Opaque helper method 节点
+   签名可蓝图化但方法体不可展开时，作为调用边界
+
+6. 支持第三方 DLL 候选
+   默认 Opaque / UnknownEffect，只做调用、定位和 Step Into
+
+7. 再扩大 Full Graph
+   只有当方法体、类型、effect、debug map 和写回都可验证时才展开
+```
+
+这个顺序可以防止“索引扫到了很多 API”反过来扩大 Graph C# 子集，避免 V2 便利性破坏 V1 的源码真相、调试真相和写回安全。

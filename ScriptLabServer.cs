@@ -172,7 +172,7 @@ public sealed class ScriptLabJsonRpcServer
         var graph = BlueprintGraphProjector.Project(module);
         var emit = DebugScriptCompiler.EmitFile(scriptPath, outputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
-        var session = new ScriptDebugSession(emit.DebugMap, sourceText);
+        var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
         var host = DebugScriptHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
 

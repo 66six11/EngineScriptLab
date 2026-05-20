@@ -24,7 +24,8 @@ public sealed class ScriptDebugLoopTests
 
         var backend = Assert.Single(result.BackendResults);
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, backend.Status);
-        Assert.True(backend.Verified);
+        Assert.False(backend.Verified);
+        Assert.True(backend.Synthetic);
         Assert.Equal(branchSite.ProbeId, backend.ProbeId);
 
         Assert.Contains(result.ProbeEvents, probeEvent =>

@@ -52,7 +52,7 @@ public static class ScriptDebugSmoke
         var fullOutputDirectory = Path.GetFullPath(outputDirectory);
         var emit = DebugScriptCompiler.EmitFile(fullPath, fullOutputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
-        var session = new ScriptDebugSession(emit.DebugMap, sourceText);
+        var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
         var host = DebugScriptHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
         session.SetTraceObservationEnabled(options.ObserveTrace);
@@ -144,10 +144,10 @@ public static class ScriptDebugSmoke
         AddCheck(
             checks,
             "backend-apply",
-            appliedBackend is { Status: ScriptBreakpointBackendStatus.Applied, Verified: true },
+            appliedBackend is { Status: ScriptBreakpointBackendStatus.Applied, Verified: false, Synthetic: true },
             appliedBackend is null
                 ? "No backend result for target site."
-                : $"status={appliedBackend.Status} verified={appliedBackend.Verified.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()}");
+                : $"status={appliedBackend.Status} verified={appliedBackend.Verified.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()} synthetic={appliedBackend.Synthetic.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()}");
 
         var instance = host.MountBehavior(options.EntityId, emit.DebugMap.BehaviorId);
         host.ClearInput();

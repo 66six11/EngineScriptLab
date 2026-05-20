@@ -11,6 +11,7 @@ public sealed record ScriptBreakpointBackendResult(
     string Key,
     string Status,
     bool Verified,
+    bool Synthetic,
     string SourcePath,
     int Line,
     int Column,
@@ -53,6 +54,7 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
                     breakpoint,
                     ScriptBreakpointBackendStatus.Unsupported,
                     verified: false,
+                    synthetic: true,
                     probeId: null,
                     "Probe backend does not support conditional or hit-count breakpoints."));
                 continue;
@@ -64,6 +66,7 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
                     breakpoint,
                     ScriptBreakpointBackendStatus.Unsupported,
                     verified: false,
+                    synthetic: true,
                     probeId: null,
                     "Probe backend cannot apply source-only breakpoints."));
                 continue;
@@ -75,6 +78,7 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
                     breakpoint,
                     ScriptBreakpointBackendStatus.Unbound,
                     verified: false,
+                    synthetic: true,
                     probeId: null,
                     $"Breakpoint binding status '{breakpoint.Status}' is not backend-applicable."));
                 continue;
@@ -87,9 +91,10 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
                 results.Add(CreateResult(
                     breakpoint,
                     ScriptBreakpointBackendStatus.Applied,
-                    verified: true,
+                    verified: false,
+                    synthetic: true,
                     site.ProbeId,
-                    "Applied to debug probe backend."));
+                    "Applied to synthetic debug probe backend."));
             }
             catch (InvalidOperationException exception)
             {
@@ -97,6 +102,7 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
                     breakpoint,
                     ScriptBreakpointBackendStatus.Unsupported,
                     verified: false,
+                    synthetic: true,
                     probeId: null,
                     exception.Message));
             }
@@ -124,6 +130,7 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
         ScriptBreakpointState breakpoint,
         string status,
         bool verified,
+        bool synthetic,
         int? probeId,
         string message)
     {
@@ -131,6 +138,7 @@ public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
             breakpoint.Key,
             status,
             verified,
+            synthetic,
             breakpoint.SourcePath,
             breakpoint.Line,
             breakpoint.Column,

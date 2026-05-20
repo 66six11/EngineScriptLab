@@ -56,8 +56,10 @@ public sealed class DapScriptBreakpointBackendTests
         Assert.Equal(2, results.Count);
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, results[0].Status);
         Assert.True(results[0].Verified);
+        Assert.False(results[0].Synthetic);
         Assert.Equal(ScriptBreakpointBackendStatus.Unbound, results[1].Status);
         Assert.False(results[1].Verified);
+        Assert.False(results[1].Synthetic);
         Assert.Contains("No executable code", results[1].Message, StringComparison.Ordinal);
     }
 
@@ -97,6 +99,7 @@ public sealed class DapScriptBreakpointBackendTests
         var result = Assert.Single(results);
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, result.Status);
         Assert.True(result.Verified);
+        Assert.False(result.Synthetic);
     }
 
     [Fact]
@@ -120,6 +123,7 @@ public sealed class DapScriptBreakpointBackendTests
         var result = Assert.Single(results);
         Assert.Equal(ScriptBreakpointBackendStatus.Unsupported, result.Status);
         Assert.False(result.Verified);
+        Assert.False(result.Synthetic);
         Assert.Contains("supportsConditionalBreakpoints", result.Message, StringComparison.Ordinal);
     }
 

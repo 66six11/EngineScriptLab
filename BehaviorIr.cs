@@ -390,20 +390,27 @@ public static class BehaviorIrLowerer
         {
             var condition = LowerExpression(ifStatement.Condition);
             var thenBlock = CreateBlock($"then_{blockIndex++}");
+            var elseClause = ifStatement.Else;
+            var elseBlock = elseClause is null
+                ? null
+                : CreateBlock($"else_{blockIndex++}");
             var exitBlock = CreateBlock($"exit_{blockIndex++}");
 
             var source = GetSourceSpan(ifStatement);
-            currentBlock.Instructions.Add(new BehaviorIrBranch(condition, thenBlock.Name, exitBlock.Name, source));
+            currentBlock.Instructions.Add(new BehaviorIrBranch(
+                condition,
+                thenBlock.Name,
+                elseBlock?.Name ?? exitBlock.Name,
+                source));
 
             currentBlock = thenBlock;
             LowerStatement(ifStatement.Statement);
             currentBlock.Instructions.Add(new BehaviorIrJump(exitBlock.Name, source));
 
-            if (ifStatement.Else is not null)
+            if (elseClause is not null && elseBlock is not null)
             {
-                var elseBlock = CreateBlock($"else_{blockIndex++}");
                 currentBlock = elseBlock;
-                LowerStatement(ifStatement.Else.Statement);
+                LowerStatement(elseClause.Statement);
                 currentBlock.Instructions.Add(new BehaviorIrJump(exitBlock.Name, source));
             }
 

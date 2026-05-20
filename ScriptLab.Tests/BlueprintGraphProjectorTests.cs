@@ -85,6 +85,34 @@ public sealed class BlueprintGraphProjectorTests
     }
 
     [Fact]
+    public void Project_WhenIfElseIsUsed_ConnectsThenAndElseExecEdges()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildIfElseScript(),
+            "IfElseMove.ash.cs");
+        var graph = BlueprintGraphProjector.Project(module);
+
+        var function = Assert.Single(graph.Functions);
+        var branchNode = FindNode(function, "Branch", "Branch");
+        var translateNodeIds = function.Nodes
+            .Where(node => node.Kind == "Call" && node.Label == "asharia.transform.translate")
+            .Select(node => node.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(2, translateNodeIds.Count);
+        Assert.Contains(function.Edges, edge =>
+            edge.Kind == "exec" &&
+            edge.From == branchNode.Id &&
+            edge.Label == "then" &&
+            translateNodeIds.Contains(edge.To));
+        Assert.Contains(function.Edges, edge =>
+            edge.Kind == "exec" &&
+            edge.From == branchNode.Id &&
+            edge.Label == "else" &&
+            translateNodeIds.Contains(edge.To));
+    }
+
+    [Fact]
     public void WriteJson_WhenGraphIsProjected_EmitsStableJsonShape()
     {
         var module = BehaviorIrLowerer.LowerFile(GetSamplePath("PlayerMove.ash.cs"));
@@ -138,5 +166,29 @@ public sealed class BlueprintGraphProjectorTests
         }
 
         throw new FileNotFoundException($"Could not locate sample script '{fileName}'.");
+    }
+
+    private static string BuildIfElseScript()
+    {
+        return """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            public class IfElseMove : BehaviorComponent
+            {
+                protected override void Update(float delta)
+                {
+                    if (Input.KeyDown(Key.W))
+                    {
+                        Transform.Translate(Self, new Vec3(0f, 0f, 1f));
+                    }
+                    else
+                    {
+                        Transform.Translate(Self, new Vec3(0f, 0f, 2f));
+                    }
+                }
+            }
+            """;
     }
 }

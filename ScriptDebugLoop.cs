@@ -36,7 +36,7 @@ public static class ScriptDebugLoop
 
         var emit = DebugScriptCompiler.EmitFile(scriptPath, outputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
-        var session = new ScriptDebugSession(emit.DebugMap, sourceText);
+        var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
         var host = DebugScriptHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
         session.SetTraceObservationEnabled(options.ObserveTrace);
@@ -156,7 +156,7 @@ public static class ScriptDebugLoopReporter
         foreach (var result in results)
         {
             writer.WriteLine(
-                $"    {result.Status} verified={result.Verified.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()} probe={result.ProbeId?.ToString(CultureInfo.InvariantCulture) ?? "<none>"} {result.Message}");
+                $"    {result.Status} verified={result.Verified.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()} synthetic={result.Synthetic.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()} probe={result.ProbeId?.ToString(CultureInfo.InvariantCulture) ?? "<none>"} {result.Message}");
         }
     }
 

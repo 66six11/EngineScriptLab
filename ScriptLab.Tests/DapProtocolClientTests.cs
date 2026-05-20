@@ -103,11 +103,26 @@ public sealed class DapProtocolClientTests
         var capabilities = DapBreakpointBackendCapabilities.FromInitializeResponseBody(new JsonObject
         {
             ["supportsConditionalBreakpoints"] = true,
-            ["supportsHitConditionalBreakpoints"] = true
+            ["supportsHitConditionalBreakpoints"] = true,
+            ["supportsBreakpointLocationsRequest"] = true,
+            ["supportsInstructionBreakpoints"] = true
         });
 
         Assert.True(capabilities.SupportsConditionalBreakpoints);
         Assert.True(capabilities.SupportsHitConditionalBreakpoints);
+        Assert.True(capabilities.SupportsBreakpointLocationsRequest);
+        Assert.True(capabilities.SupportsInstructionBreakpoints);
+    }
+
+    [Fact]
+    public void FromInitializeResponseBody_WhenCapabilitiesAreMissing_DefaultsToFalse()
+    {
+        var capabilities = DapBreakpointBackendCapabilities.FromInitializeResponseBody(new JsonObject());
+
+        Assert.False(capabilities.SupportsConditionalBreakpoints);
+        Assert.False(capabilities.SupportsHitConditionalBreakpoints);
+        Assert.False(capabilities.SupportsBreakpointLocationsRequest);
+        Assert.False(capabilities.SupportsInstructionBreakpoints);
     }
 
     private static void WriteFrame(Stream stream, JsonObject message)

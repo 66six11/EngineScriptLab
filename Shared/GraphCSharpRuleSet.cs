@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -39,95 +40,168 @@ public static class GraphCSharpRuleSet
 {
     public const string Category = "GraphCSharp";
     public const string ErrorSeverity = "Error";
+    public const string UnsupportedSyntaxId = "AGC0001";
+    public const string UnsupportedExpressionId = "AGC0002";
+    public const string UnregisteredFunctionCallId = "AGC0003";
+    public const string UnsupportedLoopId = "AGC0007";
+    public const string UnsupportedTypeId = "AGC0008";
+    public const string UnsupportedAllocationId = "AGC0009";
+
+    private static readonly string[] ConstructibleValueTypeNames =
+    {
+        "Vec2",
+        "Vec3",
+        "Vec4",
+        "Quat",
+        "Color"
+    };
+
+    private static readonly string[] UnsupportedTypeNames =
+    {
+        "dynamic",
+        "object",
+        "Task",
+        "Thread",
+        "Delegate",
+        "Action",
+        "Func"
+    };
 
     public static readonly GraphCSharpDiagnosticDefinition[] Diagnostics =
     {
-        new("AGC0001", "Unsupported Graph C# syntax"),
-        new("AGC0002", "Unsupported Graph C# expression"),
-        new("AGC0003", "Unregistered Graph C# function call"),
-        new("AGC0007", "Unsupported Graph C# loop")
+        new(UnsupportedSyntaxId, "Unsupported Graph C# syntax"),
+        new(UnsupportedExpressionId, "Unsupported Graph C# expression"),
+        new(UnregisteredFunctionCallId, "Unregistered Graph C# function call"),
+        new(UnsupportedLoopId, "Unsupported Graph C# loop"),
+        new(UnsupportedTypeId, "Unsupported Graph C# type"),
+        new(UnsupportedAllocationId, "Unsupported Graph C# allocation")
     };
 
     public static readonly GraphCSharpSyntaxRule[] SyntaxRules =
     {
         new(
             SyntaxKind.ParenthesizedLambdaExpression,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "Lambda expressions are not supported by Graph C# v0."),
         new(
             SyntaxKind.SimpleLambdaExpression,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "Lambda expressions are not supported by Graph C# v0."),
         new(
             SyntaxKind.AnonymousMethodExpression,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "Anonymous methods are not supported by Graph C# v0."),
         new(
             SyntaxKind.AwaitExpression,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "await is not supported by Graph C# v0."),
         new(
             SyntaxKind.YieldReturnStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "yield is not supported by Graph C# v0."),
         new(
             SyntaxKind.YieldBreakStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "yield is not supported by Graph C# v0."),
         new(
             SyntaxKind.TryStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "try/catch/finally is not supported by Graph C# v0."),
         new(
             SyntaxKind.ThrowStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "throw is not supported by Graph C# v0."),
         new(
+            SyntaxKind.ThrowExpression,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "throw expressions are not supported by Graph C# v0."),
+        new(
             SyntaxKind.GotoStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "goto is not supported by Graph C# v0."),
         new(
             SyntaxKind.LockStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "lock is not supported by Graph C# v0."),
         new(
             SyntaxKind.UnsafeStatement,
-            "AGC0001",
+            UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",
             "unsafe blocks are not supported by Graph C# v0."),
         new(
+            SyntaxKind.PointerType,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "pointer types are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.StackAllocArrayCreationExpression,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "stackalloc is not supported by Graph C# v0."),
+        new(
+            SyntaxKind.ImplicitStackAllocArrayCreationExpression,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "stackalloc is not supported by Graph C# v0."),
+        new(
+            SyntaxKind.DelegateDeclaration,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "delegate declarations are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.EventDeclaration,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "events are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.EventFieldDeclaration,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "events are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.ArrayCreationExpression,
+            UnsupportedAllocationId,
+            "Unsupported Graph C# allocation",
+            "Array allocations are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.ImplicitArrayCreationExpression,
+            UnsupportedAllocationId,
+            "Unsupported Graph C# allocation",
+            "Implicit array allocations are not supported by Graph C# v0."),
+        new(
             SyntaxKind.QueryExpression,
-            "AGC0002",
+            UnsupportedExpressionId,
             "Unsupported Graph C# expression",
             "LINQ query expressions are not supported by Graph C# v0."),
         new(
             SyntaxKind.ForStatement,
-            "AGC0007",
+            UnsupportedLoopId,
             "Unsupported Graph C# loop",
             "for loops are not supported by Graph C# v0."),
         new(
             SyntaxKind.ForEachStatement,
-            "AGC0007",
+            UnsupportedLoopId,
             "Unsupported Graph C# loop",
             "foreach loops are not supported by Graph C# v0."),
         new(
             SyntaxKind.WhileStatement,
-            "AGC0007",
+            UnsupportedLoopId,
             "Unsupported Graph C# loop",
             "while loops are not supported by Graph C# v0."),
         new(
             SyntaxKind.DoStatement,
-            "AGC0007",
+            UnsupportedLoopId,
             "Unsupported Graph C# loop",
             "do loops are not supported by Graph C# v0.")
     };
@@ -147,5 +221,78 @@ public static class GraphCSharpRuleSet
         }
 
         return null;
+    }
+
+    public static bool IsConstructibleValueType(string typeName)
+    {
+        return ContainsSimpleName(ConstructibleValueTypeNames, typeName);
+    }
+
+    public static bool IsUnsupportedType(string typeName)
+    {
+        return ContainsSimpleName(UnsupportedTypeNames, typeName);
+    }
+
+    public static string GetUnsupportedTypeMessage(string typeName)
+    {
+        return $"Type '{typeName}' is not supported by Graph C# v0.";
+    }
+
+    public static string GetUnsupportedAllocationMessage(string typeName)
+    {
+        return $"Allocation 'new {typeName}' is not supported by Graph C# v0. Use registered value structs or graph API factories.";
+    }
+
+    public static string GetUnsupportedImplicitAllocationMessage()
+    {
+        return "Implicit object creation is not supported by Graph C# v0. Use an explicit registered value struct constructor.";
+    }
+
+    public static string GetUnsupportedReflectionMessage(string expression)
+    {
+        return $"Reflection expression '{expression}' is not supported by Graph C# v0.";
+    }
+
+    public static string GetUnsupportedStaticStateMessage(string fieldName)
+    {
+        return $"Static field '{fieldName}' is not supported by Graph C# v0 because graph scripts cannot own global mutable state.";
+    }
+
+    private static bool ContainsSimpleName(string[] names, string typeName)
+    {
+        var simpleName = GetSimpleName(typeName);
+        foreach (var name in names)
+        {
+            if (string.Equals(name, simpleName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string GetSimpleName(string typeName)
+    {
+        var normalized = typeName.Trim();
+        var genericStart = normalized.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            normalized = normalized.Substring(0, genericStart);
+        }
+
+        var aliasSeparator = normalized.LastIndexOf("::", StringComparison.Ordinal);
+        if (aliasSeparator >= 0)
+        {
+            normalized = normalized.Substring(aliasSeparator + 2);
+        }
+
+        var namespaceSeparator = normalized.LastIndexOf('.');
+        if (namespaceSeparator >= 0)
+        {
+            normalized = normalized.Substring(namespaceSeparator + 1);
+        }
+
+        return normalized;
     }
 }

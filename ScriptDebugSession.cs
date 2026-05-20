@@ -2,6 +2,8 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ScriptLab;
 
@@ -46,6 +48,15 @@ public sealed record ScriptBlueprintBreakpointRequest(
     string? Condition = null,
     string? HitCondition = null);
 
+public sealed record ScriptBreakpointAnchor(
+    string BehaviorId,
+    string FunctionId,
+    BehaviorSourceSpan SourceSpan,
+    string SourceTextHash,
+    string Kind,
+    string Label,
+    int SiblingOrdinal);
+
 public sealed record ScriptBreakpointState(
     string Key,
     string Status,
@@ -59,6 +70,7 @@ public sealed record ScriptBreakpointState(
     int Column,
     string? Condition,
     string? HitCondition,
+    ScriptBreakpointAnchor? Anchor,
     ScriptBreakpointBinding Binding);
 
 public static class ScriptStoppedEventStatus
@@ -127,6 +139,18 @@ public sealed record ScriptDebugVariable(
     long? Sequence = null,
     int? HitCount = null);
 
+public sealed record ScriptFrameVariableSnapshot(
+    bool Available,
+    string Reason,
+    IReadOnlyList<ScriptDebugVariable> Arguments,
+    IReadOnlyList<ScriptDebugVariable> Locals,
+    IReadOnlyList<ScriptDebugVariable> ThisVariables);
+
+public interface IScriptFrameVariableBackend
+{
+    ScriptFrameVariableSnapshot ReadVariables(ScriptStoppedEvent stoppedEvent);
+}
+
 public sealed record ScriptDebugScope(
     string Name,
     string Kind,
@@ -179,6 +203,8 @@ public sealed record ScriptProbeEventIngestResult(
 
 public sealed class ScriptDebugSession
 {
+    private const int SupportedDebugMapSchemaVersion = 1;
+
     private readonly ScriptDebugMap debugMap;
     private readonly SourceText sourceText;
     private readonly SyntaxTree syntaxTree;
@@ -200,7 +226,18 @@ public sealed class ScriptDebugSession
     private bool watchObservationEnabled;
 
     public ScriptDebugSession(ScriptDebugMap debugMap, string sourceText, int traceSampleCapacity = 256)
+        : this(debugMap, sourceText, debugMap.SourceDocumentPath, traceSampleCapacity)
     {
+    }
+
+    public ScriptDebugSession(
+        ScriptDebugMap debugMap,
+        string sourceText,
+        string sourcePath,
+        int traceSampleCapacity = 256)
+    {
+        ValidateDebugMap(debugMap, sourceText, sourcePath);
+
         this.debugMap = debugMap;
         this.sourceText = SourceText.From(sourceText);
         this.traceSampleCapacity = Math.Max(1, traceSampleCapacity);
@@ -208,7 +245,8 @@ public sealed class ScriptDebugSession
             this.sourceText,
             path: debugMap.SourceDocumentPath);
         sites = debugMap.Functions
-            .SelectMany(function => function.Sites.Select(site => new IndexedSite(function.FunctionId, site)))
+            .SelectMany(function => function.Sites.Select((site, index) =>
+                new IndexedSite(function.FunctionId, site, index)))
             .ToArray();
         siteByDebugSiteId = sites
             .GroupBy(site => site.Site.DebugSiteId, StringComparer.Ordinal)
@@ -220,6 +258,42 @@ public sealed class ScriptDebugSession
             .Where(site => site.Site.ProbeId is not null)
             .GroupBy(site => site.Site.ProbeId!.Value)
             .ToDictionary(group => group.Key, group => group.First());
+    }
+
+    private static void ValidateDebugMap(ScriptDebugMap debugMap, string sourceText, string sourcePath)
+    {
+        if (debugMap.SchemaVersion != SupportedDebugMapSchemaVersion)
+        {
+            throw new InvalidOperationException(
+                $"DebugMap schema version '{debugMap.SchemaVersion}' is not supported; expected '{SupportedDebugMapSchemaVersion}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(debugMap.SourceDocumentPath))
+        {
+            throw new InvalidOperationException("DebugMap source document path is missing.");
+        }
+
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            throw new InvalidOperationException("Debug session source path is missing.");
+        }
+
+        if (!PathsEqual(sourcePath, debugMap.SourceDocumentPath))
+        {
+            throw new InvalidOperationException(
+                $"DebugMap source document path '{debugMap.SourceDocumentPath}' does not match source path '{sourcePath}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(debugMap.SourceChecksum))
+        {
+            throw new InvalidOperationException("DebugMap source checksum is missing.");
+        }
+
+        var actualChecksum = ComputeSha256Hex(sourceText);
+        if (!string.Equals(debugMap.SourceChecksum, actualChecksum, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("DebugMap source checksum does not match current source text.");
+        }
     }
 
     public IReadOnlyList<ScriptBreakpointState> Breakpoints => GetBreakpoints();
@@ -499,7 +573,8 @@ public sealed class ScriptDebugSession
     public ScriptPausedSnapshot ReadPausedSnapshot(
         DebugScriptHost host,
         ScriptStoppedEvent stoppedEvent,
-        int entityId)
+        int entityId,
+        IScriptFrameVariableBackend? frameVariables = null)
     {
         if (stoppedEvent.Status != ScriptStoppedEventStatus.Resolved)
         {
@@ -512,35 +587,19 @@ public sealed class ScriptDebugSession
                 CreateUnavailableScopes("Stopped event is not resolved to a debug map site."));
         }
 
+        var frameScopes = CreateFrameScopes(stoppedEvent, frameVariables);
+
         return new ScriptPausedSnapshot(
             ScriptPausedSnapshotStatus.Partial,
             stoppedEvent.Synthetic,
             debugMap.BehaviorId,
             entityId,
             stoppedEvent,
-            new[]
+            frameScopes.Concat(new[]
             {
-                CreateUnavailableScope(
-                    "Arguments",
-                    ScriptDebugScopeKind.Arguments,
-                    stoppedEvent.Synthetic
-                        ? "Synthetic probe stops do not expose a debugger stack frame."
-                        : "Debugger frame variable backend is not connected yet."),
-                CreateUnavailableScope(
-                    "Locals",
-                    ScriptDebugScopeKind.Locals,
-                    stoppedEvent.Synthetic
-                        ? "Synthetic probe stops do not expose a debugger stack frame."
-                        : "Debugger frame variable backend is not connected yet."),
-                CreateUnavailableScope(
-                    "This",
-                    ScriptDebugScopeKind.This,
-                    stoppedEvent.Synthetic
-                        ? "Synthetic probe stops do not expose a debugger stack frame."
-                        : "Debugger frame variable backend is not connected yet."),
                 CreateInspectorScope(host, entityId),
                 CreateWatchScope()
-            });
+            }).ToArray());
     }
 
     private void RecordTraceEvent(DebugRuntimeProbeEvent probeEvent)
@@ -725,7 +784,39 @@ public sealed class ScriptDebugSession
         breakpoint.SourcePath = location.SourcePath;
         breakpoint.Line = location.Line;
         breakpoint.Column = location.Column;
+        breakpoint.Anchor = CreateAnchor(binding, fallbackGraphNodeId);
         return breakpoint;
+    }
+
+    private ScriptBreakpointAnchor? CreateAnchor(
+        ScriptBreakpointBinding binding,
+        string? fallbackGraphNodeId)
+    {
+        if (!string.IsNullOrWhiteSpace(fallbackGraphNodeId) &&
+            siteByGraphNodeId.TryGetValue(fallbackGraphNodeId, out var graphSite))
+        {
+            return CreateAnchor(graphSite);
+        }
+
+        if (!string.IsNullOrWhiteSpace(binding.DebugSiteId) &&
+            siteByDebugSiteId.TryGetValue(binding.DebugSiteId, out var debugSite))
+        {
+            return CreateAnchor(debugSite);
+        }
+
+        return null;
+    }
+
+    private ScriptBreakpointAnchor CreateAnchor(IndexedSite site)
+    {
+        return new ScriptBreakpointAnchor(
+            debugMap.BehaviorId,
+            site.FunctionId,
+            site.Site.SourceSpan,
+            site.Site.SourceTextHash,
+            site.Site.Kind,
+            site.Site.Label,
+            site.SiblingOrdinal);
     }
 
     private static BreakpointLocation ResolveBreakpointLocation(
@@ -1041,6 +1132,75 @@ public sealed class ScriptDebugSession
         };
     }
 
+    private static IReadOnlyList<ScriptDebugScope> CreateFrameScopes(
+        ScriptStoppedEvent stoppedEvent,
+        IScriptFrameVariableBackend? frameVariables)
+    {
+        if (stoppedEvent.Synthetic)
+        {
+            const string reason = "Synthetic probe stops do not expose a debugger stack frame.";
+            return CreateUnavailableFrameScopes(reason);
+        }
+
+        if (frameVariables is null)
+        {
+            const string reason = "Debugger frame variable backend is not connected yet.";
+            return CreateUnavailableFrameScopes(reason);
+        }
+
+        var frameSnapshot = frameVariables.ReadVariables(stoppedEvent);
+        if (!frameSnapshot.Available)
+        {
+            var reason = string.IsNullOrWhiteSpace(frameSnapshot.Reason)
+                ? "Debugger frame variables are unavailable."
+                : frameSnapshot.Reason;
+            return CreateUnavailableFrameScopes(reason);
+        }
+
+        return new[]
+        {
+            CreateFrameScope(
+                "Arguments",
+                ScriptDebugScopeKind.Arguments,
+                "Debugger frame arguments are available.",
+                frameSnapshot.Arguments),
+            CreateFrameScope(
+                "Locals",
+                ScriptDebugScopeKind.Locals,
+                "Debugger frame locals are available.",
+                frameSnapshot.Locals),
+            CreateFrameScope(
+                "This",
+                ScriptDebugScopeKind.This,
+                "Debugger frame this variables are available.",
+                frameSnapshot.ThisVariables)
+        };
+    }
+
+    private static IReadOnlyList<ScriptDebugScope> CreateUnavailableFrameScopes(string reason)
+    {
+        return new[]
+        {
+            CreateUnavailableScope("Arguments", ScriptDebugScopeKind.Arguments, reason),
+            CreateUnavailableScope("Locals", ScriptDebugScopeKind.Locals, reason),
+            CreateUnavailableScope("This", ScriptDebugScopeKind.This, reason)
+        };
+    }
+
+    private static ScriptDebugScope CreateFrameScope(
+        string name,
+        string kind,
+        string reason,
+        IReadOnlyList<ScriptDebugVariable> variables)
+    {
+        return new ScriptDebugScope(
+            name,
+            kind,
+            Available: true,
+            reason,
+            variables);
+    }
+
     private static string? GetFriendlyValueTypeName(object? value)
     {
         if (value is null)
@@ -1208,7 +1368,23 @@ public sealed class ScriptDebugSession
                 : StringComparison.Ordinal);
     }
 
-    private sealed record IndexedSite(string FunctionId, ScriptDebugMapSite Site);
+    private static string ComputeSha256Hex(string text)
+    {
+        return ToHex(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+    }
+
+    private static string ToHex(IEnumerable<byte> bytes)
+    {
+        var builder = new StringBuilder();
+        foreach (var value in bytes)
+        {
+            builder.Append(value.ToString("x2"));
+        }
+
+        return builder.ToString();
+    }
+
+    private sealed record IndexedSite(string FunctionId, ScriptDebugMapSite Site, int SiblingOrdinal);
 
     private sealed record BreakpointLocation(string SourcePath, int Line, int Column);
 
@@ -1277,6 +1453,8 @@ public sealed class ScriptDebugSession
 
         public string? BlueprintHitCondition { get; set; }
 
+        public ScriptBreakpointAnchor? Anchor { get; set; }
+
         public ScriptBreakpointState ToState()
         {
             return new ScriptBreakpointState(
@@ -1292,6 +1470,7 @@ public sealed class ScriptDebugSession
                 Column,
                 SourceCondition ?? BlueprintCondition,
                 SourceHitCondition ?? BlueprintHitCondition,
+                Anchor,
                 Binding);
         }
     }

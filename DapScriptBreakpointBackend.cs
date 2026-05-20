@@ -4,13 +4,17 @@ namespace ScriptLab;
 
 public sealed record DapBreakpointBackendCapabilities(
     bool SupportsConditionalBreakpoints = false,
-    bool SupportsHitConditionalBreakpoints = false)
+    bool SupportsHitConditionalBreakpoints = false,
+    bool SupportsBreakpointLocationsRequest = false,
+    bool SupportsInstructionBreakpoints = false)
 {
     public static DapBreakpointBackendCapabilities FromInitializeResponseBody(JsonObject body)
     {
         return new DapBreakpointBackendCapabilities(
             GetBoolean(body, "supportsConditionalBreakpoints"),
-            GetBoolean(body, "supportsHitConditionalBreakpoints"));
+            GetBoolean(body, "supportsHitConditionalBreakpoints"),
+            GetBoolean(body, "supportsBreakpointLocationsRequest"),
+            GetBoolean(body, "supportsInstructionBreakpoints"));
     }
 
     private static bool GetBoolean(JsonObject json, string name)
@@ -169,6 +173,7 @@ public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
             breakpoint.Key,
             status,
             verified,
+            Synthetic: false,
             breakpoint.SourcePath,
             breakpoint.Line,
             breakpoint.Column,

@@ -27,53 +27,23 @@ public static class GraphCSharpSubsetAnalyzer
                 return;
             }
 
-            var rule = GraphCSharpRuleSet.Find(node.Kind());
-            if (rule is not null)
+            foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(node))
             {
-                Report(node, rule);
-            }
-
-            if (node is InvocationExpressionSyntax invocation)
-            {
-                ReportUnregisteredFunctionCall(invocation);
+                Report(diagnostic);
             }
 
             base.Visit(node);
         }
 
-        private void ReportUnregisteredFunctionCall(InvocationExpressionSyntax invocation)
+        private void Report(GraphCSharpRestrictionDiagnostic diagnostic)
         {
-            if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
-            {
-                return;
-            }
-
-            var csharpName = memberAccess.ToString();
-            if (GraphCSharpBindingRegistry.TryGetFunctionId(csharpName, out _))
-            {
-                return;
-            }
-
-            Report(
-                invocation,
-                "AGC0003",
-                GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName));
-        }
-
-        private void Report(SyntaxNode node, GraphCSharpSyntaxRule rule)
-        {
-            Report(node, rule.Id, rule.Message);
-        }
-
-        private void Report(SyntaxNode node, string id, string message)
-        {
-            var span = node.GetLocation().GetLineSpan();
+            var span = diagnostic.Node.GetLocation().GetLineSpan();
             var start = span.StartLinePosition;
 
             diagnostics.Add(new ScriptDiagnostic(
-                id,
+                diagnostic.Id,
                 GraphCSharpRuleSet.ErrorSeverity,
-                message,
+                diagnostic.Message,
                 Path.GetFileName(span.Path),
                 start.Line + 1,
                 start.Character + 1));

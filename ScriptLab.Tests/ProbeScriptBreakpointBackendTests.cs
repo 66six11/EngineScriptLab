@@ -20,7 +20,8 @@ public sealed class ProbeScriptBreakpointBackendTests
 
         var result = Assert.Single(results);
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, result.Status);
-        Assert.True(result.Verified);
+        Assert.False(result.Verified);
+        Assert.True(result.Synthetic);
         Assert.Equal(branchProbe.ProbeId, result.ProbeId);
         Assert.Equal(new[] { branchProbe.ProbeId }, host.GetBreakpointProbeIds());
 
@@ -96,6 +97,8 @@ public sealed class ProbeScriptBreakpointBackendTests
 
         var result = Assert.Single(results);
         Assert.Equal(branchSite.DebugSiteId, result.DebugSiteId);
+        Assert.False(result.Verified);
+        Assert.True(result.Synthetic);
         Assert.Equal(new[] { branchProbe.ProbeId }, host.GetBreakpointProbeIds());
     }
 
@@ -115,6 +118,7 @@ public sealed class ProbeScriptBreakpointBackendTests
         var result = Assert.Single(results);
         Assert.Equal(ScriptBreakpointBackendStatus.Unsupported, result.Status);
         Assert.False(result.Verified);
+        Assert.True(result.Synthetic);
         Assert.Null(result.DebugSiteId);
         Assert.Empty(host.GetBreakpointProbeIds());
     }

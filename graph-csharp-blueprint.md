@@ -146,15 +146,15 @@ Roslyn SyntaxTree
 
 | 诊断码 | 含义 | 示例 |
 | --- | --- | --- |
-| `AGC0001` | Unsupported syntax | lambda、`await`、`try`、`goto`。 |
-| `AGC0002` | Unsupported expression | LINQ query、dynamic member access。 |
+| `AGC0001` | Unsupported syntax | lambda、`await`、`try`、`goto`、`static` field、pointer、`stackalloc`。 |
+| `AGC0002` | Unsupported expression | LINQ query、`typeof(...).Get*()` reflection。 |
 | `AGC0003` | Unregistered function call | 调用了没有 `FunctionId` 的普通方法。 |
 | `AGC0004` | Ambiguous field identity | 同一 Behavior 内 FieldId 冲突，或 `[FormerlyField]` 指向不唯一。 |
 | `AGC0005` | Illegal context call | `Update()` 调 editor-only API。 |
 | `AGC0006` | Hidden side effect | pure 表达式中调用 mutating API。 |
 | `AGC0007` | Unsupported loop | 使用未受控 `while` / `for`。 |
-| `AGC0008` | Unsupported type | 使用不可保存或不可图形化类型。 |
-| `AGC0009` | Unsupported allocation | `new` 任意引用对象。 |
+| `AGC0008` | Unsupported type | `dynamic`、`object`、`Task`、`Thread`、delegate/callback 类型等不可保存或不可图形化类型。 |
+| `AGC0009` | Unsupported allocation | `new` 任意引用对象、数组分配，或不能静态判定为注册值类型的 implicit `new(...)`。 |
 | `AGC0010` | Source map unavailable | 无法建立源码 span 到 IR/graph 的映射。 |
 
 局部变量是可蓝图结构，不应默认报错。例如：
@@ -582,6 +582,7 @@ DebugMap = 源码、蓝图、IR、PDB、probe 的唯一映射真相；可观测�
 
 - `debugSiteId` 是当前构建内的调试位置身份，来自 Behavior IR instruction；`graphNodeId` 只用于当前蓝图视图，不能作为持久化断点身份。
 - 持久化断点保存 `breakpointAnchor`，至少包含 `behaviorId`、`functionId`、源码 span、源码片段 hash、节点/语句类型和 sibling/context ordinal；重编译后通过 DebugMap 重新绑定为 `debugSiteId`。
+- 当前 V1 已在 `ScriptBreakpointState` 里生成 `breakpointAnchor`，用于记录用户原始断点意图；跨构建重绑定算法仍是后续工作。
 - DebugMap 为每个节点标记 `breakabilityHint`、`breakableVerified`、`observable` 和 `owningBreakableDebugSiteId`。
 - `Branch`、statement `Call`、`Assign`、`Return`、statement `Watch` 这类 statement/control 节点可作为可断候选；是否能映射到真实 debugger breakpoint，必须以 PDB/IL 或 debug adapter 返回的 verified breakpoint 为准。
 - `Const`、`GetField`、`GetLocal`、`BinaryOp`、`MakeStruct` 等表达式节点通常共享外层语句的 PDB sequence point；它们可用于高亮、Trace、Watch 或 Pin Inspect，但 Trace/Watch 只有在观察视窗或客户端订阅打开后才采集，设置断点时自动落到 `owningBreakableDebugSiteId`。
@@ -753,7 +754,7 @@ public static class Transform
 退出条件：
 
 - `PlayerMove.ash.cs` 通过。
-- lambda、LINQ、`await`、reflection、未注册 API、重复字段身份、非法迁移 attribute 均报预期诊断。
+- lambda、LINQ、`await`、reflection、`dynamic` / `object` / `Task`、static field、任意引用对象 `new`、数组分配、未注册 API、重复字段身份、非法迁移 attribute 均报预期诊断。
 - `GraphDebug.Inspect/Watch` 只允许作为调试观察 API 使用，不能影响 gameplay 语义。
 
 ### Phase 3：BindingRegistry
@@ -846,7 +847,9 @@ public static class Transform
 - 手写 `GraphDebug.Inspect/Watch` 可被 debug rewriter 降为 `DebugProbe.Value`；release/profile build 退化为原值或空操作。
 - 插入的 probe 代码使用 `#line hidden` 或等价机制，Portable PDB sequence point 仍指向用户 `.ash.cs` 的真实 statement。
 - 读取 Portable PDB 并验证 `sourceChecksum`、`assemblyMvid`、`pdbId`、method token、IL offset 和 local scope metadata；验证失败时 DebugMap 不可用于断点绑定。
+- `ScriptDebugSession` 创建时校验 DebugMap schema、source path 和 source checksum；失败时拒绝创建调试会话。
 - 普通暂停断点通过 `ScriptDebugSession` 设置 debugger source/PDB breakpoint；Trace/Watch 观察开关可以只更新 runtime probe table，不触发重新编译；没有观察者时后台不聚合 Trace/Watch。
+- backend result 的 `verified` 只表示真实 debugger / DAP backend 验证过断点位置；probe backend 只能报告 `applied + synthetic`，不能把 synthetic stop 伪装成 verified breakpoint。
 - hidden probe location 不能作为通用 source breakpoint fallback；只有 source/PDB、DAP instruction breakpoint 或 ICorDebug IL offset breakpoint 可标记为真暂停断点。
 - Source Generator、IL weaving、Profiler/ReJIT 都不在第一版实现范围内。
 - C# probe trace 与 IR verifier 在实验样例上可对比同一调用序列，但 C# 运行结果是权威。
@@ -859,8 +862,10 @@ public static class Transform
 
 - `ScriptDebugMap` 可把 `graphNodeId(current)` 映射到 `debugSiteId`、可选 `probeId`、`.ash.cs` source span、PDB sequence point、method token、IL offset 和可见 local scope。
 - 普通图节点断点通过 DebugMap 绑定到 debugger source/PDB breakpoint 或受支持的 instruction/IL breakpoint，并能报告 `bound / unbound / ambiguous / verified` 状态。
-- DAP 后端必须先探测 capabilities；条件断点、hit count、breakpointLocations 和 instruction breakpoint 只有在 adapter 支持时才启用。
+- DAP 后端必须先探测 capabilities；当前能力模型读取 conditional breakpoint、hit condition、breakpointLocations 和 instruction breakpoint，相关功能只有在 adapter 支持时才启用。
 - DAP source breakpoint 管理必须按文件维护完整断点集合，增删单个断点时仍向 adapter 提交该文件的全量列表。
+- 当前实现已在 `ScriptDebugSession.ReadPausedSnapshot` 加入 `IScriptFrameVariableBackend` 接口和 fake-backend 测试；真实 DAP `stackTrace -> scopes -> variables` 尚未接线。
+- synthetic probe stop 不读取 frame variables；只有非 synthetic debugger stop 才允许用 backend 填充 Arguments、Locals、This。
 - 源码断点打在 `{`、空行、注释或不可断表达式位置时，可归一化到 owning breakable site；如果无法映射，UI 显示 source-only。
 - debugger stopped event 后，DebugSession 能用当前 frame 的实际 sequence point / IL offset 定位到对应 `debugSiteId` 和蓝图节点。
 - stopped event 必须记录 `threadId` 和 `allThreadsStopped`；变量刷新只针对当前暂停状态，continue/step 后清空旧 frame/variables reference。

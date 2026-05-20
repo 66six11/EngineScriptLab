@@ -2,8 +2,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using ScriptLab.GraphCSharp;
 
@@ -31,41 +29,17 @@ public sealed class GraphCSharpDiagnosticAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
 
-        context.RegisterSyntaxNodeAction(ReportUnsupportedSyntax, GraphCSharpRuleSet.SyntaxKinds);
-        context.RegisterSyntaxNodeAction(ReportUnregisteredFunctionCall, SyntaxKind.InvocationExpression);
+        context.RegisterSyntaxNodeAction(ReportRestriction, GraphCSharpRestrictionAnalyzer.SyntaxKinds);
     }
 
-    private static void ReportUnsupportedSyntax(SyntaxNodeAnalysisContext context)
+    private static void ReportRestriction(SyntaxNodeAnalysisContext context)
     {
-        var rule = GraphCSharpRuleSet.Find(context.Node.Kind());
-        if (rule is null)
+        foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(context.Node))
         {
-            return;
+            context.ReportDiagnostic(Diagnostic.Create(
+                Descriptors[diagnostic.Id],
+                diagnostic.Node.GetLocation(),
+                diagnostic.Message));
         }
-
-        context.ReportDiagnostic(Diagnostic.Create(
-            Descriptors[rule.Id],
-            context.Node.GetLocation(),
-            rule.Message));
-    }
-
-    private static void ReportUnregisteredFunctionCall(SyntaxNodeAnalysisContext context)
-    {
-        if (context.Node is not InvocationExpressionSyntax invocation ||
-            invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
-        {
-            return;
-        }
-
-        var csharpName = memberAccess.ToString();
-        if (GraphCSharpBindingRegistry.TryGetFunctionId(csharpName, out _))
-        {
-            return;
-        }
-
-        context.ReportDiagnostic(Diagnostic.Create(
-            Descriptors["AGC0003"],
-            invocation.GetLocation(),
-            GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName)));
     }
 }

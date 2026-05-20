@@ -72,6 +72,29 @@ public sealed class BehaviorIrLowererTests
         Assert.True(watches[1].IsStatement);
     }
 
+    [Fact]
+    public void LowerText_WhenIfElseIsUsed_BranchTargetsElseBlock()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildIfElseScript(),
+            "IfElseMove.ash.cs");
+
+        var function = Assert.Single(module.Functions);
+        Assert.Equal(new[] { "entry", "then_0", "else_1", "exit_2" }, function.Blocks.Select(block => block.Name));
+
+        var branch = Assert.Single(function.Blocks.SelectMany(block => block.Instructions).OfType<BehaviorIrBranch>());
+        Assert.Equal("then_0", branch.ThenBlock);
+        Assert.Equal("else_1", branch.ElseBlock);
+
+        var result = BehaviorIrVerifier.ExecuteUpdate(
+            module,
+            0.016f,
+            new HashSet<string>(StringComparer.Ordinal));
+        var call = Assert.Single(result.Calls);
+        Assert.Equal("asharia.transform.translate", call.FunctionId);
+        Assert.Equal(new BehaviorIrVerificationVec3(0f, 0f, 2f), call.Arguments[1]);
+    }
+
     private static string GetSamplePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -88,5 +111,29 @@ public sealed class BehaviorIrLowererTests
         }
 
         throw new FileNotFoundException($"Could not locate sample script '{fileName}'.");
+    }
+
+    private static string BuildIfElseScript()
+    {
+        return """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            public class IfElseMove : BehaviorComponent
+            {
+                protected override void Update(float delta)
+                {
+                    if (Input.KeyDown(Key.W))
+                    {
+                        Transform.Translate(Self, new Vec3(0f, 0f, 1f));
+                    }
+                    else
+                    {
+                        Transform.Translate(Self, new Vec3(0f, 0f, 2f));
+                    }
+                }
+            }
+            """;
     }
 }

@@ -55,6 +55,12 @@ public sealed class GraphCSharpScriptParserTests
     [InlineData("try { return; } catch { return; }", "AGC0001")]
     [InlineData("while (Input.KeyDown(Key.W)) { return; }", "AGC0007")]
     [InlineData("var values = from value in Numbers select value;", "AGC0002")]
+    [InlineData("dynamic value = 1;", "AGC0008")]
+    [InlineData("Task value = null;", "AGC0008")]
+    [InlineData("var members = typeof(Unsupported).GetMethods();", "AGC0002")]
+    [InlineData("var value = new Random();", "AGC0009")]
+    [InlineData("Vec3 value = new(0f, 0f, 1f);", "AGC0009")]
+    [InlineData("var values = new[] { 1, 2 };", "AGC0009")]
     public void ParseText_WhenScriptUsesUnsupportedGraphCSharpSyntax_ReturnsAgcDiagnostic(
         string updateBody,
         string expectedDiagnosticId)
@@ -81,6 +87,20 @@ public sealed class GraphCSharpScriptParserTests
         Assert.Contains(result.Diagnostics, diagnostic =>
             diagnostic.Id == "AGC0003" &&
             diagnostic.Message.Contains("Debug.Log", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenScriptDeclaresStaticField_ReturnsAgc0001()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScriptWithFields("private static float Cache;"),
+            "StaticField.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0001" &&
+            diagnostic.Message.Contains("Static field 'Cache'", StringComparison.Ordinal));
     }
 
     [Fact]
