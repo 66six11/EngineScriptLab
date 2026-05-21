@@ -866,7 +866,7 @@ public static class Transform
 - DAP source breakpoint 管理必须按文件维护完整断点集合，增删单个断点时仍向 adapter 提交该文件的全量列表。
 - 当前实现已在 `ScriptDebugSession.ReadPausedSnapshot` 加入 `IScriptFrameVariableBackend` 接口，并通过 `DapDebugSessionClient` / `DapScriptStoppedEventResolver` / `DapScriptFrameVariableBackend` 的 fake DAP 测试验证 `DrainEvents -> stopped.threadId -> stackTrace -> scopes -> variables`。
 - 当前实验性 `DapDebugSessionRuntime` 已组合 source breakpoint apply、drained stopped event resolve 和 paused snapshot frame variables；它不是 adapter 进程 owner。
-- 真实 debug adapter 进程启动、attach、stopped event 监听尚未接线；当前 DAP frame variables 只证明协议和 paused snapshot 数据流。
+- 当前 `DapAdapterProcess` 只负责 stdio 进程所有权；`DapDebugSessionLauncher` 用 fake transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch -> runtime`。真实 .NET adapter 参数、attach、异步事件泵和 shutdown 尚未接线。
 - synthetic probe stop 不读取 frame variables；只有非 synthetic debugger stop 才允许用 backend 填充 Arguments、Locals、This。
 - 源码断点打在 `{`、空行、注释或不可断表达式位置时，可归一化到 owning breakable site；如果无法映射，UI 显示 source-only。
 - debugger stopped event 后，DebugSession 能用当前 frame 的实际 sequence point / IL offset 定位到对应 `debugSiteId` 和蓝图节点。

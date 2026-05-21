@@ -47,6 +47,10 @@ public sealed record DapStoppedEvent(
     bool AllThreadsStopped,
     string? Description);
 
+public sealed record DapInitializedHandshake(
+    DapBreakpointBackendCapabilities Capabilities,
+    bool InitializedEventReceived);
+
 public sealed class DapDebugSessionClient
 {
     private readonly IDapRequestClient client;
@@ -96,6 +100,30 @@ public sealed class DapDebugSessionClient
                     GetInt32(breakpoint, "column"));
             })
             .ToArray();
+    }
+
+    public DapInitializedHandshake Initialize(JsonObject? arguments = null)
+    {
+        var responseBody = client.SendRequest(
+            "initialize",
+            arguments?.DeepClone().AsObject() ?? new JsonObject());
+        var initializedEventReceived = DrainRawEvents()
+            .Any(message =>
+                string.Equals(GetString(message, "type"), "event", StringComparison.Ordinal) &&
+                string.Equals(GetString(message, "event"), "initialized", StringComparison.Ordinal));
+        return new DapInitializedHandshake(
+            DapBreakpointBackendCapabilities.FromInitializeResponseBody(responseBody),
+            initializedEventReceived);
+    }
+
+    public void ConfigurationDone()
+    {
+        client.SendRequest("configurationDone", new JsonObject());
+    }
+
+    public void Launch(JsonObject arguments)
+    {
+        client.SendRequest("launch", arguments.DeepClone().AsObject());
     }
 
     public IReadOnlyList<DapStackFrame> StackTrace(int threadId)
@@ -185,16 +213,16 @@ public sealed class DapDebugSessionClient
 
     public IReadOnlyList<DapStoppedEvent> DrainStoppedEvents()
     {
-        if (eventSource is null)
-        {
-            return Array.Empty<DapStoppedEvent>();
-        }
-
-        return eventSource.DrainEvents()
+        return DrainRawEvents()
             .Select(message => TryParseStoppedEvent(message, out var stoppedEvent) ? stoppedEvent : null)
             .Where(stoppedEvent => stoppedEvent is not null)
             .Cast<DapStoppedEvent>()
             .ToArray();
+    }
+
+    private IReadOnlyList<JsonObject> DrainRawEvents()
+    {
+        return eventSource?.DrainEvents() ?? Array.Empty<JsonObject>();
     }
 
     private static JsonObject CreateDapSourceBreakpoint(DapSourceBreakpointRequest breakpoint)
