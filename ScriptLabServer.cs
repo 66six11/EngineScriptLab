@@ -49,6 +49,30 @@ public sealed record ScriptLabRunDebugParams(
     bool ObserveTrace = false,
     bool ObserveWatch = false);
 
+public sealed record ScriptLabContinueDebugParams(
+    string? ScriptPath = null,
+    string? OutputDirectory = null,
+    int? ThreadId = null);
+
+public sealed record ScriptLabStepDebugParams(
+    string? ScriptPath = null,
+    string? OutputDirectory = null,
+    int? ThreadId = null,
+    string Kind = "next",
+    string? Granularity = null);
+
+public sealed record ScriptLabAttachDebugHostParams(
+    string? ScriptPath = null,
+    string? OutputDirectory = null,
+    int ProcessId = 0,
+    string HostKind = "cppClr",
+    bool TerminateOnDisconnect = false);
+
+public sealed record ScriptLabDisconnectDebugHostParams(
+    string? ScriptPath = null,
+    string? OutputDirectory = null,
+    bool? TerminateDebuggee = null);
+
 public sealed record ScriptLabLoadGraphResult(
     string ScriptPath,
     string OutputDirectory,
@@ -76,6 +100,47 @@ public sealed record ScriptLabRunDebugResult(
     ScriptStoppedEvent? StoppedEvent,
     ScriptPausedSnapshot? PausedSnapshot);
 
+public sealed record ScriptLabExecutionControlResult(
+    string Status,
+    string Backend,
+    string Reason,
+    int? ThreadId,
+    string? StepKind,
+    string? Granularity);
+
+public sealed record ScriptLabDebugHostAttachmentResult(
+    string Status,
+    string Backend,
+    string HostKind,
+    int ProcessId,
+    bool TerminateOnDisconnect,
+    string Reason,
+    ScriptLabDapAttachTarget AttachTarget,
+    IReadOnlyList<ScriptBreakpointBackendResult> BreakpointResults);
+
+public sealed record ScriptLabDapAttachTarget(
+    string HostKind,
+    int ProcessId,
+    bool TerminateOnDisconnect,
+    string AssemblyPath,
+    string PdbPath,
+    string DebugMapPath,
+    string AssemblyMvid,
+    string PdbId);
+
+public sealed record ScriptLabDebugHostDisconnectResult(
+    string Status,
+    string Backend,
+    bool TerminateDebuggee,
+    string Reason);
+
+public sealed record ScriptLabDapAttachRequest(
+    ScriptDebugSession Session,
+    ScriptDebugMap DebugMap,
+    string SourcePath,
+    JsonObject InitializeArguments,
+    JsonObject AttachArguments);
+
 public sealed class ScriptLabJsonRpcServer
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -85,11 +150,15 @@ public sealed class ScriptLabJsonRpcServer
     };
 
     private readonly ScriptLabServerOptions options;
+    private readonly Func<ScriptLabDapAttachRequest, DapDebugSessionLaunchResult>? dapAttachFactory;
     private ServerState? state;
 
-    public ScriptLabJsonRpcServer(ScriptLabServerOptions? options = null)
+    public ScriptLabJsonRpcServer(
+        ScriptLabServerOptions? options = null,
+        Func<ScriptLabDapAttachRequest, DapDebugSessionLaunchResult>? dapAttachFactory = null)
     {
         this.options = options ?? new ScriptLabServerOptions();
+        this.dapAttachFactory = dapAttachFactory;
     }
 
     public async Task RunAsync(
@@ -158,6 +227,11 @@ public sealed class ScriptLabJsonRpcServer
             "getBreakpoints" => GetBreakpoints(
                 ReadParams(parameters, new ScriptLabGetBreakpointsParams())),
             "runDebug" => RunDebug(ReadParams(parameters, new ScriptLabRunDebugParams())),
+            "attachDebugHost" => AttachDebugHost(ReadParams(parameters, new ScriptLabAttachDebugHostParams())),
+            "disconnectDebugHost" => DisconnectDebugHost(
+                ReadParams(parameters, new ScriptLabDisconnectDebugHostParams())),
+            "continue" => ContinueDebug(ReadParams(parameters, new ScriptLabContinueDebugParams())),
+            "step" => StepDebug(ReadParams(parameters, new ScriptLabStepDebugParams())),
             "getPausedSnapshot" => GetPausedSnapshot(),
             "getTraceSnapshot" => GetTraceSnapshot(),
             _ => throw new InvalidOperationException($"Unknown method '{method}'.")
@@ -321,6 +395,158 @@ public sealed class ScriptLabJsonRpcServer
             pausedSnapshot);
     }
 
+    private ScriptLabDebugHostAttachmentResult AttachDebugHost(ScriptLabAttachDebugHostParams parameters)
+    {
+        if (parameters.ProcessId <= 0)
+        {
+            throw new InvalidOperationException("processId must be a positive C++ CLR host process id.");
+        }
+
+        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var attachTarget = CreateDapAttachTarget(current, parameters);
+        var attachArguments = CreateDapAttachArguments(attachTarget);
+        ClearPausedState(current);
+        current.AttachedHost = attachTarget;
+        current.PendingAttachArguments = attachArguments;
+        var attachResult = TryAttachDapRuntime(current, attachArguments);
+
+        return new ScriptLabDebugHostAttachmentResult(
+            attachResult is null ? "unsupported" : "attached",
+            "dap",
+            attachTarget.HostKind,
+            attachTarget.ProcessId,
+            attachTarget.TerminateOnDisconnect,
+            attachResult is null
+                ? "C++ CLR host attach requires the DAP backend path, which is not connected yet."
+                : "C++ CLR host attach target is connected through the DAP backend.",
+            attachTarget,
+            attachResult?.BreakpointResults ?? Array.Empty<ScriptBreakpointBackendResult>());
+    }
+
+    public static JsonObject CreateDapAttachArguments(ScriptLabDapAttachTarget attachTarget)
+    {
+        return new JsonObject
+        {
+            ["processId"] = attachTarget.ProcessId,
+            ["hostKind"] = attachTarget.HostKind,
+            ["terminateOnDisconnect"] = attachTarget.TerminateOnDisconnect,
+            ["assemblyPath"] = attachTarget.AssemblyPath,
+            ["pdbPath"] = attachTarget.PdbPath,
+            ["debugMapPath"] = attachTarget.DebugMapPath,
+            ["assemblyMvid"] = attachTarget.AssemblyMvid,
+            ["pdbId"] = attachTarget.PdbId
+        };
+    }
+
+    private ScriptLabDebugHostDisconnectResult DisconnectDebugHost(
+        ScriptLabDisconnectDebugHostParams parameters)
+    {
+        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var terminateDebuggee = parameters.TerminateDebuggee ??
+                                current.AttachedHost?.TerminateOnDisconnect ??
+                                false;
+        ClearPausedState(current);
+
+        if (current.DapRuntime is not null)
+        {
+            current.DapRuntime.Disconnect(terminateDebuggee);
+            ClearAttachedHostState(current);
+            return new ScriptLabDebugHostDisconnectResult(
+                "disconnected",
+                "dap",
+                terminateDebuggee,
+                "DAP debug session was disconnected from the C++ CLR host.");
+        }
+
+        if (current.AttachedHost is not null)
+        {
+            ClearAttachedHostState(current);
+            return new ScriptLabDebugHostDisconnectResult(
+                "detached",
+                "dap",
+                terminateDebuggee,
+                "Recorded C++ CLR host attach target was cleared; no DAP debug session was connected.");
+        }
+
+        return new ScriptLabDebugHostDisconnectResult(
+            "notAttached",
+            "probe",
+            terminateDebuggee,
+            "No debug host is attached.");
+    }
+
+    private ScriptLabExecutionControlResult ContinueDebug(ScriptLabContinueDebugParams parameters)
+    {
+        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        ClearPausedState(current);
+        if (current.AttachedHost is not null)
+        {
+            if (current.DapRuntime is not null && parameters.ThreadId is not null)
+            {
+                var continueResult = current.DapRuntime.Continue(parameters.ThreadId.Value);
+                return new ScriptLabExecutionControlResult(
+                    continueResult.AllThreadsContinued ? "continued" : "continuedThread",
+                    "dap",
+                    "DAP continue request was sent to the attached C++ CLR host.",
+                    parameters.ThreadId,
+                    StepKind: null,
+                    Granularity: null);
+            }
+
+            return new ScriptLabExecutionControlResult(
+                "unsupported",
+                "dap",
+                "The C++ CLR host attach target is recorded, but no DAP debug session is connected yet.",
+                parameters.ThreadId,
+                StepKind: null,
+                Granularity: null);
+        }
+
+        return new ScriptLabExecutionControlResult(
+            "unsupported",
+            "probe",
+            "The probe debug backend cannot continue a suspended debugger thread.",
+            parameters.ThreadId,
+            StepKind: null,
+            Granularity: null);
+    }
+
+    private ScriptLabExecutionControlResult StepDebug(ScriptLabStepDebugParams parameters)
+    {
+        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        ClearPausedState(current);
+        if (current.AttachedHost is not null)
+        {
+            if (current.DapRuntime is not null && parameters.ThreadId is not null)
+            {
+                current.DapRuntime.Next(parameters.ThreadId.Value, parameters.Granularity);
+                return new ScriptLabExecutionControlResult(
+                    "stepped",
+                    "dap",
+                    "DAP step request was sent to the attached C++ CLR host.",
+                    parameters.ThreadId,
+                    parameters.Kind,
+                    parameters.Granularity);
+            }
+
+            return new ScriptLabExecutionControlResult(
+                "unsupported",
+                "dap",
+                "The C++ CLR host attach target is recorded, but no DAP debug session is connected yet.",
+                parameters.ThreadId,
+                parameters.Kind,
+                parameters.Granularity);
+        }
+
+        return new ScriptLabExecutionControlResult(
+            "unsupported",
+            "probe",
+            "The probe debug backend cannot step a suspended debugger thread.",
+            parameters.ThreadId,
+            parameters.Kind,
+            parameters.Granularity);
+    }
+
     private ScriptPausedSnapshot? GetPausedSnapshot()
     {
         var current = RequireState();
@@ -400,6 +626,70 @@ public sealed class ScriptLabJsonRpcServer
             string.IsNullOrWhiteSpace(scriptPath)
                 ? Path.Combine("Samples", "PlayerMove.ash.cs")
                 : scriptPath);
+    }
+
+    private static void ClearPausedState(ServerState current)
+    {
+        current.LastIngest = null;
+        current.LastStoppedEvent = null;
+        current.LastPausedSnapshot = null;
+    }
+
+    private static void ClearAttachedHostState(ServerState current)
+    {
+        current.AttachedHost = null;
+        current.PendingAttachArguments = null;
+        current.DapRuntime = null;
+    }
+
+    private static ScriptLabDapAttachTarget CreateDapAttachTarget(
+        ServerState current,
+        ScriptLabAttachDebugHostParams parameters)
+    {
+        if (!string.Equals(parameters.HostKind, "cppClr", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("hostKind must be 'cppClr' for C++ direct CLR hosting.");
+        }
+
+        return new ScriptLabDapAttachTarget(
+            parameters.HostKind,
+            parameters.ProcessId,
+            parameters.TerminateOnDisconnect,
+            current.Emit.AssemblyPath,
+            current.Emit.PdbPath,
+            current.Emit.DebugMapPath,
+            current.Emit.DebugMap.AssemblyMvid,
+            current.Emit.DebugMap.PdbId);
+    }
+
+    private DapDebugSessionLaunchResult? TryAttachDapRuntime(
+        ServerState current,
+        JsonObject attachArguments)
+    {
+        if (dapAttachFactory is null)
+        {
+            return null;
+        }
+
+        var attachResult = dapAttachFactory(new ScriptLabDapAttachRequest(
+            current.Session,
+            current.Emit.DebugMap,
+            current.Emit.DebugMap.SourceDocumentPath,
+            CreateDapInitializeArguments(),
+            attachArguments.DeepClone().AsObject()));
+        current.DapRuntime = attachResult.Runtime;
+        current.LastBackendResults = attachResult.BreakpointResults;
+        return attachResult;
+    }
+
+    private static JsonObject CreateDapInitializeArguments()
+    {
+        return new JsonObject
+        {
+            ["adapterID"] = "scriptlab",
+            ["clientID"] = "scriptlab-jsonrpc",
+            ["clientName"] = "ScriptLab JSON-RPC"
+        };
     }
 
     private string ResolveOutputDirectory(string? outputDirectory)
@@ -495,5 +785,11 @@ public sealed class ScriptLabJsonRpcServer
         public ScriptStoppedEvent? LastStoppedEvent { get; set; }
 
         public ScriptPausedSnapshot? LastPausedSnapshot { get; set; }
+
+        public ScriptLabDapAttachTarget? AttachedHost { get; set; }
+
+        public JsonObject? PendingAttachArguments { get; set; }
+
+        public DapDebugSessionRuntime? DapRuntime { get; set; }
     }
 }

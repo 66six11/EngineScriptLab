@@ -24,6 +24,31 @@ public sealed class DapDebugSessionLauncher
         JsonObject? initializeArguments,
         JsonObject launchArguments)
     {
+        var result = PrepareSession(session, debugMap, sourcePath, initializeArguments);
+        client.Launch(launchArguments);
+
+        return result;
+    }
+
+    public DapDebugSessionLaunchResult Attach(
+        ScriptDebugSession session,
+        ScriptDebugMap debugMap,
+        string sourcePath,
+        JsonObject? initializeArguments,
+        JsonObject attachArguments)
+    {
+        var result = PrepareSession(session, debugMap, sourcePath, initializeArguments);
+        client.Attach(attachArguments);
+
+        return result;
+    }
+
+    private DapDebugSessionLaunchResult PrepareSession(
+        ScriptDebugSession session,
+        ScriptDebugMap debugMap,
+        string sourcePath,
+        JsonObject? initializeArguments)
+    {
         var handshake = client.Initialize(initializeArguments);
         var runtime = new DapDebugSessionRuntime(
             client,
@@ -32,7 +57,6 @@ public sealed class DapDebugSessionLauncher
             handshake.Capabilities);
         var breakpointResults = runtime.ApplySourceBreakpoints(sourcePath);
         client.ConfigurationDone();
-        client.Launch(launchArguments);
 
         return new DapDebugSessionLaunchResult(
             runtime,

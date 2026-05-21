@@ -175,6 +175,124 @@ public sealed class DapDebugSessionClientTests
         Assert.Empty(transport.Events);
     }
 
+    [Fact]
+    public void DisconnectAndTerminate_SendExpectedRequests()
+    {
+        var requestClient = new FakeDapRequestClient();
+        requestClient.EnqueueResponse(new JsonObject());
+        requestClient.EnqueueResponse(new JsonObject());
+        var client = new DapDebugSessionClient(requestClient);
+
+        client.Disconnect(terminateDebuggee: true);
+        client.Terminate(restart: false);
+
+        Assert.Equal(new[] { "disconnect", "terminate" }, requestClient.Requests.Select(request => request.Command));
+        Assert.True(requestClient.Requests[0].Arguments["terminateDebuggee"]!.GetValue<bool>());
+        Assert.False(requestClient.Requests[1].Arguments["restart"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void ContinueAndNext_SendExpectedExecutionControlRequests()
+    {
+        var requestClient = new FakeDapRequestClient();
+        requestClient.EnqueueResponse(new JsonObject
+        {
+            ["allThreadsContinued"] = false
+        });
+        requestClient.EnqueueResponse(new JsonObject());
+        var client = new DapDebugSessionClient(requestClient);
+
+        var continueResult = client.Continue(threadId: 11);
+        client.Next(threadId: 11, granularity: "line");
+
+        Assert.False(continueResult.AllThreadsContinued);
+        Assert.Equal(new[] { "continue", "next" }, requestClient.Requests.Select(request => request.Command));
+        Assert.Equal(11, requestClient.Requests[0].Arguments["threadId"]!.GetValue<int>());
+        Assert.Equal(11, requestClient.Requests[1].Arguments["threadId"]!.GetValue<int>());
+        Assert.Equal("line", requestClient.Requests[1].Arguments["granularity"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void LaunchAndAttach_SendClonedArguments()
+    {
+        var requestClient = new FakeDapRequestClient();
+        requestClient.EnqueueResponse(new JsonObject());
+        requestClient.EnqueueResponse(new JsonObject());
+        var client = new DapDebugSessionClient(requestClient);
+        var launchArguments = new JsonObject
+        {
+            ["program"] = "ScriptLab.TestHost.dll"
+        };
+        var attachArguments = new JsonObject
+        {
+            ["processId"] = 4242,
+            ["hostKind"] = "cppClr"
+        };
+
+        client.Launch(launchArguments);
+        client.Attach(attachArguments);
+        launchArguments["program"] = "mutated";
+        attachArguments["processId"] = 1;
+
+        Assert.Equal(new[] { "launch", "attach" }, requestClient.Requests.Select(request => request.Command));
+        Assert.Equal("ScriptLab.TestHost.dll", requestClient.Requests[0].Arguments["program"]!.GetValue<string>());
+        Assert.Equal(4242, requestClient.Requests[1].Arguments["processId"]!.GetValue<int>());
+        Assert.Equal("cppClr", requestClient.Requests[1].Arguments["hostKind"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void TryParseLifecycleEvent_WhenEventIsTerminated_ReturnsTerminatedEvent()
+    {
+        var message = new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "terminated",
+            ["body"] = new JsonObject
+            {
+                ["restart"] = true
+            }
+        };
+
+        var parsed = DapDebugSessionClient.TryParseLifecycleEvent(message, out var lifecycleEvent);
+
+        Assert.True(parsed);
+        Assert.Equal(DapLifecycleEventKind.Terminated, lifecycleEvent.Kind);
+        Assert.True(lifecycleEvent.Restart);
+        Assert.Null(lifecycleEvent.ExitCode);
+    }
+
+    [Fact]
+    public void DrainLifecycleEvents_WhenEventSourceHasExitedEvent_ReturnsExitedEvent()
+    {
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint"
+            }
+        });
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "exited",
+            ["body"] = new JsonObject
+            {
+                ["exitCode"] = 0
+            }
+        });
+        var client = new DapDebugSessionClient(transport, transport);
+
+        var lifecycleEvent = Assert.Single(client.DrainLifecycleEvents());
+
+        Assert.Equal(DapLifecycleEventKind.Exited, lifecycleEvent.Kind);
+        Assert.Equal(0, lifecycleEvent.ExitCode);
+        Assert.False(lifecycleEvent.Restart);
+        Assert.Empty(transport.Events);
+    }
+
     private sealed class FakeDapRequestClient : IDapRequestClient
     {
         private readonly Queue<JsonObject> responses = new();

@@ -117,6 +117,191 @@ public sealed class DapDebugSessionRuntimeTests
         Assert.Empty(transport.Requests);
     }
 
+    [Fact]
+    public void Runtime_WhenNoNewStoppedEventsAreDrained_KeepsCurrentStoppedEventValid()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var host = DebugScriptHost.Load(emit);
+        host.MountBehavior(entityId: 101, "com.game.PlayerMove");
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint",
+                ["threadId"] = 11,
+                ["allThreadsStopped"] = true
+            }
+        });
+        transport.EnqueueResponse(CreateStackTraceResponse(emit.DebugMap.SourceDocumentPath));
+        transport.EnqueueResponse(CreateStackTraceResponse(emit.DebugMap.SourceDocumentPath));
+        transport.EnqueueResponse(new JsonObject
+        {
+            ["scopes"] = new JsonArray
+            {
+                new JsonObject { ["name"] = "Arguments", ["variablesReference"] = 0 },
+                new JsonObject { ["name"] = "Locals", ["variablesReference"] = 0 },
+                new JsonObject { ["name"] = "This", ["variablesReference"] = 0 }
+            }
+        });
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        var stopped = Assert.Single(runtime.DrainStoppedEvents());
+
+        Assert.Empty(runtime.DrainStoppedEvents());
+        var snapshot = runtime.ReadPausedSnapshot(host, stopped, entityId: 101);
+
+        Assert.Equal(ScriptPausedSnapshotStatus.Partial, snapshot.Status);
+        Assert.Equal(new[] { "stackTrace", "stackTrace", "scopes" },
+            transport.Requests.Select(request => request.Command));
+    }
+
+    [Fact]
+    public void Runtime_Disconnect_SendsDisconnectRequest()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var transport = new FakeDapTransport();
+        transport.EnqueueResponse(new JsonObject());
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        runtime.Disconnect(terminateDebuggee: true);
+
+        var request = Assert.Single(transport.Requests);
+        Assert.Equal("disconnect", request.Command);
+        Assert.True(request.Arguments["terminateDebuggee"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Runtime_DrainLifecycleEvents_ReturnsLifecycleEvents()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "terminated"
+        });
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        var lifecycleEvent = Assert.Single(runtime.DrainLifecycleEvents());
+
+        Assert.Equal(DapLifecycleEventKind.Terminated, lifecycleEvent.Kind);
+        Assert.Null(lifecycleEvent.ExitCode);
+        Assert.False(lifecycleEvent.Restart);
+    }
+
+    [Fact]
+    public void Runtime_ContinueAndNext_SendExecutionControlRequests()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var transport = new FakeDapTransport();
+        transport.EnqueueResponse(new JsonObject
+        {
+            ["allThreadsContinued"] = true
+        });
+        transport.EnqueueResponse(new JsonObject());
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        var continueResult = runtime.Continue(threadId: 11);
+        runtime.Next(threadId: 11);
+
+        Assert.True(continueResult.AllThreadsContinued);
+        Assert.Equal(new[] { "continue", "next" }, transport.Requests.Select(request => request.Command));
+        Assert.Equal(11, transport.Requests[0].Arguments["threadId"]!.GetValue<int>());
+        Assert.Equal(11, transport.Requests[1].Arguments["threadId"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Runtime_WhenContinueSucceeds_InvalidatesPreviousStoppedEvent()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var host = DebugScriptHost.Load(emit);
+        host.MountBehavior(entityId: 101, "com.game.PlayerMove");
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint",
+                ["threadId"] = 11,
+                ["allThreadsStopped"] = true
+            }
+        });
+        transport.EnqueueResponse(CreateStackTraceResponse(emit.DebugMap.SourceDocumentPath));
+        transport.EnqueueResponse(new JsonObject
+        {
+            ["allThreadsContinued"] = true
+        });
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        var stopped = Assert.Single(runtime.DrainStoppedEvents());
+        runtime.Continue(threadId: 11);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => runtime.ReadPausedSnapshot(host, stopped, entityId: 101));
+        Assert.Contains("no longer current", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { "stackTrace", "continue" }, transport.Requests.Select(request => request.Command));
+    }
+
+    [Fact]
+    public void Runtime_WhenNextSucceeds_InvalidatesPreviousStoppedEvent()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var host = DebugScriptHost.Load(emit);
+        host.MountBehavior(entityId: 101, "com.game.PlayerMove");
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "step",
+                ["threadId"] = 11,
+                ["allThreadsStopped"] = true
+            }
+        });
+        transport.EnqueueResponse(CreateStackTraceResponse(emit.DebugMap.SourceDocumentPath));
+        transport.EnqueueResponse(new JsonObject());
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        var stopped = Assert.Single(runtime.DrainStoppedEvents());
+        runtime.Next(threadId: 11, granularity: "line");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => runtime.ReadPausedSnapshot(host, stopped, entityId: 101));
+        Assert.Contains("no longer current", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { "stackTrace", "next" }, transport.Requests.Select(request => request.Command));
+    }
+
     private static JsonObject CreateStackTraceResponse(string sourcePath)
     {
         return new JsonObject

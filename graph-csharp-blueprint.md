@@ -634,12 +634,22 @@ ScriptDebugSession
 后端候选：
 
 - 优先：接现成 .NET debug adapter，复用 DAP 的 stopped / stackTrace / scopes / variables。
+- 必须按 C++ 直接宿主 CLR 的混合宿主设计：真实引擎进程由 native C++ 拥有并初始化 CLR hosting layer / managed scripting runtime，V1 backend 不能只支持 `dotnet app.dll` launch；attach 到已有 C++ CLR host process 是一等场景。
+- mixed host 下 `DapAdapterProcess` 只拥有 adapter，不拥有 engine host；disconnect 默认只 detach，terminate debuggee 必须是显式策略，不能因为关闭脚本调试会话杀掉编辑器或引擎进程。
+- DebugMap 仍只保存托管脚本 assembly/PDB/source span/sequence point/IL offset/blueprint mapping；C++ object address、native frame pointer、裸指针 offset 不能进入 DebugMap。
+- C++ host 负责 CLR 生命周期、AssemblyLoadContext、脚本 assembly/PDB 加载和卸载；ScriptLab 调试服务只消费 host 暴露的 process id、module/assembly identity、PDB 路径、entity id / handle 和调试控制入口。
 - 使用 DAP 时必须读取 adapter capabilities：`supportsBreakpointLocationsRequest`、`supportsConditionalBreakpoints`、`supportsHitConditionalBreakpoints`、`supportsInstructionBreakpoints`。不支持的能力不能出现在 V1 UI 承诺里。
 - DAP `setBreakpoints` 按 source 替换该文件整组断点；`ScriptDebugSession` 必须维护每个源码文件的完整断点列表，每次增删改后整批提交，不能只发送单个增量断点。
 - DAP stopped event 的 `allThreadsStopped` 是运行时事实；UI 不硬编码“所有线程必停”，而是按 `threadId` 和 `allThreadsStopped` 决定线程/变量面板状态。
 - DAP `frameId` 和 `variablesReference` 只在当前暂停状态有效；continue/step 后旧引用必须失效并重新请求 stack/scopes/variables。
 - 备选：实现受控的 ICorDebug 后端，直接读取 `ICorDebugILFrame` 的 arguments 和 local variables。
 - 不进入第一版：Profiler/ReJIT、IL weaving、全量 value instrumentation。
+
+混合宿主下的暂停帧选择规则：
+
+- 命中断点后先选择托管 script frame，再用该 frame 的 source/PDB/IL 信息回查 `debugSiteId`。
+- 如果调试器只停在 native engine loop，或只看到 native frames 而找不到 managed script frame，frame variables 必须返回 unavailable。
+- Inspector 可通过 entity id / managed binding / host bridge 读取对象状态，但不能替代 Arguments、Locals、This。
 
 插桩对 PDB 的约束：
 
@@ -866,11 +876,11 @@ public static class Transform
 - DAP source breakpoint 管理必须按文件维护完整断点集合，增删单个断点时仍向 adapter 提交该文件的全量列表。
 - 当前实现已在 `ScriptDebugSession.ReadPausedSnapshot` 加入 `IScriptFrameVariableBackend` 接口，并通过 `DapDebugSessionClient` / `DapScriptStoppedEventResolver` / `DapScriptFrameVariableBackend` 的 fake DAP 测试验证 `DrainEvents -> stopped.threadId -> stackTrace -> scopes -> variables`。
 - 当前实验性 `DapDebugSessionRuntime` 已组合 source breakpoint apply、drained stopped event resolve 和 paused snapshot frame variables；它不是 adapter 进程 owner。
-- 当前 `DapAdapterProcess` 只负责 stdio 进程所有权；`DapDebugSessionLauncher` 用 fake transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch -> runtime`。真实 .NET adapter 参数、attach、异步事件泵和 shutdown 尚未接线。
+- 当前 `DapAdapterProcess` 只负责 stdio 进程所有权；`DapDebugSessionLauncher` 用 fake transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch/attach -> runtime`。`continue` / `next` / `disconnect` / `terminate` 有最小请求封装，`terminated` / `exited` 可手动 drain；真实 .NET adapter 参数、异步事件泵、暂停态缓存和等待退出策略尚未接线。
 - synthetic probe stop 不读取 frame variables；只有非 synthetic debugger stop 才允许用 backend 填充 Arguments、Locals、This。
 - 源码断点打在 `{`、空行、注释或不可断表达式位置时，可归一化到 owning breakable site；如果无法映射，UI 显示 source-only。
 - debugger stopped event 后，DebugSession 能用当前 frame 的实际 sequence point / IL offset 定位到对应 `debugSiteId` 和蓝图节点。
-- stopped event 必须记录 `threadId` 和 `allThreadsStopped`；变量刷新只针对当前暂停状态，continue/step 后清空旧 frame/variables reference。
+- stopped event 必须记录 `threadId` 和 `allThreadsStopped`；变量刷新只针对当前暂停状态，continue/step 后清空旧 frame/variables reference，并拒绝用旧 stopped event 再读 paused snapshot。
 - 当前暂停 frame 的 `Update(float delta)` 参数、当前 locals 和 `this` 字段可通过 debugger frame 读取并显示。
 - 插入的 probe 代码不会成为用户单步时默认停留的位置。
 - IDE/编辑器 Inspector 面板可显示暂停帧变量，并区分 Inspector 字段值、frame locals 和 Watch / Pin Inspect value。
@@ -951,14 +961,14 @@ packages/scripting-dotnet future
 - 保留：Roslyn analyzer/binder/IR、BlueprintGraph projection、ScriptDebugMap、DebugScriptCompiler、DebugScriptSession、run-debug synthetic backend。
 - 删除：独立浏览器前端、`export-visual`、`VisualPrototypeExporter`、Vite dev API、前端 public 快照导出流程。
 - 新增方向：`ScriptLabJsonRpcServer` 作为 IDE/编辑器集成层的稳定边界；外部客户端只做 UI、断点入口、源码/蓝图同步展示，不直接计算 `probeId` 或自行解释 DebugMap。
-- 调试后端优先级：先接 DAP 形状 backend 并探测 capabilities；不能满足 frame/IL 级定位时，再实现受控 ICorDebug 后端。
+- 调试后端优先级：先接 DAP 形状 backend 并探测 capabilities；同时把 C++ 直接宿主 CLR 的 attach 路径作为主线；不能满足 frame/IL 级定位时，再实现受控 ICorDebug 后端。
 - UI 形态：暂不在仓库内实现；未来 Rider/IDE/独立编辑器客户端都通过本地服务显示 Blueprint projection、DebugMap 状态、trace/watch 摘要、Inspector；源码断点和蓝图断点都通过 `ScriptDebugSession` 统一提交。
 
 新的下一步：
 
 1. 保持 `run-debug` 作为 headless 验证入口，继续覆盖 DebugMap、breakpoint binding、stopped event、trace/watch aggregation。
-2. 扩展 ScriptLab 本地协议：保持 `loadGraph`、`resolve*Breakpoint`、`set*Breakpoints`、`runDebug`、`getPausedSnapshot`、`getTraceSnapshot` 稳定，再补 `continue`、`step`、`readVariables`。
-3. 接 DAP backend MVP：Content-Length framing、`initialize` capabilities、`setBreakpoints` 全量提交、`stopped -> stackTrace -> scopes -> variables`。
+2. 扩展 ScriptLab 本地协议：保持 `loadGraph`、`resolve*Breakpoint`、`set*Breakpoints`、`runDebug`、`getPausedSnapshot`、`getTraceSnapshot` 稳定；`attachDebugHost` 已能表达 C++ CLR host 目标，`continue` / `step` 已有 unsupported 边界，后续再补 DAP backend 和 `readVariables`。
+3. 接 DAP backend MVP：Content-Length framing、`initialize` capabilities、`setBreakpoints` 全量提交、launch managed test host 仅作测试路径、attach C++ CLR host 作为真实路径、`stopped -> stackTrace -> scopes -> variables`。
 4. 等 DAP 断点和变量读取跑通后，再选择具体 UI 宿主；Rider 插件可以作为客户端之一，但不是当前第一落点。
 5. 最后再补蓝图编辑和回写；不要把编辑器 UI 作为当前阻塞项。
 
@@ -972,6 +982,10 @@ packages/scripting-dotnet future
 {"jsonrpc":"2.0","id":3,"method":"runDebug","params":{"graphNodeId":"n3","entityId":1,"delta":0.016,"pressKeyW":true}}
 {"jsonrpc":"2.0","id":4,"method":"getPausedSnapshot","params":{}}
 {"jsonrpc":"2.0","id":5,"method":"getTraceSnapshot","params":{}}
+{"jsonrpc":"2.0","id":6,"method":"attachDebugHost","params":{"processId":4242,"hostKind":"cppClr","terminateOnDisconnect":false}}
+{"jsonrpc":"2.0","id":7,"method":"continue","params":{"threadId":11}}
+{"jsonrpc":"2.0","id":8,"method":"step","params":{"threadId":11,"kind":"next","granularity":"line"}}
+{"jsonrpc":"2.0","id":9,"method":"disconnectDebugHost","params":{}}
 ```
 
 约束：
@@ -980,4 +994,7 @@ packages/scripting-dotnet future
 - `loadGraph` 会生成 `BlueprintGraph + ScriptDebugMap` 并建立当前服务状态。
 - `setBlueprintBreakpoints` 只接受当前图节点 ID，内部由 `ScriptDebugSession` 映射到 `debugSiteId` 和 source/PDB breakpoint。
 - `runDebug` 当前仍使用 synthetic probe backend；这是给客户端调通图节点选择、停止点、Inspector 和 Trace 的过渡后端。
-- DAP 后端接入后，协议方法名尽量不变，只替换 server 内部 backend。
+- `attachDebugHost` 当前记录 C++ CLR host attach 目标并返回 `status=unsupported` / `backend=dap`；响应里的 `attachTarget` 包含 process id、detach 策略、generated assembly/PDB/debugMap 路径、assembly MVID 和 PDB id，不包含 C++ 裸指针或 native frame 信息。
+- `continue` / `step` 当前在 probe backend 下返回 `status=unsupported`，并清空 cached paused snapshot；接入 DAP 后保持方法名，改由真实 debugger thread 执行。
+- `disconnectDebugHost` 默认使用 attach target 的 `terminateOnDisconnect=false`，即 detach 而不是杀死 C++ CLR host；只有显式传 `terminateDebuggee=true` 才允许终止 debuggee。
+- DAP 后端接入后，协议方法名尽量不变，只替换 server 内部 backend；混合宿主模式下关闭会话默认 detach，不默认 terminate native engine host。

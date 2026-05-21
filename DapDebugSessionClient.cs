@@ -51,6 +51,19 @@ public sealed record DapInitializedHandshake(
     DapBreakpointBackendCapabilities Capabilities,
     bool InitializedEventReceived);
 
+public sealed record DapContinueResult(bool AllThreadsContinued);
+
+public static class DapLifecycleEventKind
+{
+    public const string Terminated = "terminated";
+    public const string Exited = "exited";
+}
+
+public sealed record DapLifecycleEvent(
+    string Kind,
+    int? ExitCode,
+    bool Restart);
+
 public sealed class DapDebugSessionClient
 {
     private readonly IDapRequestClient client;
@@ -124,6 +137,58 @@ public sealed class DapDebugSessionClient
     public void Launch(JsonObject arguments)
     {
         client.SendRequest("launch", arguments.DeepClone().AsObject());
+    }
+
+    public void Attach(JsonObject arguments)
+    {
+        client.SendRequest("attach", arguments.DeepClone().AsObject());
+    }
+
+    public DapContinueResult Continue(int threadId)
+    {
+        var responseBody = client.SendRequest(
+            "continue",
+            new JsonObject
+            {
+                ["threadId"] = threadId
+            });
+        return new DapContinueResult(
+            GetBoolean(responseBody, "allThreadsContinued", defaultValue: true));
+    }
+
+    public void Next(int threadId, string? granularity = null)
+    {
+        var arguments = new JsonObject
+        {
+            ["threadId"] = threadId
+        };
+
+        if (!string.IsNullOrWhiteSpace(granularity))
+        {
+            arguments["granularity"] = granularity;
+        }
+
+        client.SendRequest("next", arguments);
+    }
+
+    public void Disconnect(bool terminateDebuggee)
+    {
+        client.SendRequest(
+            "disconnect",
+            new JsonObject
+            {
+                ["terminateDebuggee"] = terminateDebuggee
+            });
+    }
+
+    public void Terminate(bool restart = false)
+    {
+        client.SendRequest(
+            "terminate",
+            new JsonObject
+            {
+                ["restart"] = restart
+            });
     }
 
     public IReadOnlyList<DapStackFrame> StackTrace(int threadId)
@@ -211,12 +276,54 @@ public sealed class DapDebugSessionClient
         return true;
     }
 
+    public static bool TryParseLifecycleEvent(JsonObject message, out DapLifecycleEvent lifecycleEvent)
+    {
+        lifecycleEvent = null!;
+
+        if (!string.Equals(GetString(message, "type"), "event", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var eventName = GetString(message, "event");
+        if (string.Equals(eventName, DapLifecycleEventKind.Terminated, StringComparison.Ordinal))
+        {
+            var body = GetBody(message);
+            lifecycleEvent = new DapLifecycleEvent(
+                DapLifecycleEventKind.Terminated,
+                ExitCode: null,
+                Restart: body is not null && GetBoolean(body, "restart"));
+            return true;
+        }
+
+        if (string.Equals(eventName, DapLifecycleEventKind.Exited, StringComparison.Ordinal))
+        {
+            var body = GetBody(message);
+            lifecycleEvent = new DapLifecycleEvent(
+                DapLifecycleEventKind.Exited,
+                body is null ? null : GetInt32(body, "exitCode"),
+                Restart: false);
+            return true;
+        }
+
+        return false;
+    }
+
     public IReadOnlyList<DapStoppedEvent> DrainStoppedEvents()
     {
         return DrainRawEvents()
             .Select(message => TryParseStoppedEvent(message, out var stoppedEvent) ? stoppedEvent : null)
             .Where(stoppedEvent => stoppedEvent is not null)
             .Cast<DapStoppedEvent>()
+            .ToArray();
+    }
+
+    public IReadOnlyList<DapLifecycleEvent> DrainLifecycleEvents()
+    {
+        return DrainRawEvents()
+            .Select(message => TryParseLifecycleEvent(message, out var lifecycleEvent) ? lifecycleEvent : null)
+            .Where(lifecycleEvent => lifecycleEvent is not null)
+            .Cast<DapLifecycleEvent>()
             .ToArray();
     }
 
@@ -254,6 +361,14 @@ public sealed class DapDebugSessionClient
             : null;
     }
 
+    private static JsonObject? GetBody(JsonObject message)
+    {
+        return message.TryGetPropertyValue("body", out var bodyNode) &&
+               bodyNode is JsonObject body
+            ? body
+            : null;
+    }
+
     private static IReadOnlyList<JsonNode?> GetArray(JsonObject json, string name)
     {
         return json.TryGetPropertyValue(name, out var node) &&
@@ -280,6 +395,13 @@ public sealed class DapDebugSessionClient
         return json.TryGetPropertyValue(name, out var node) &&
                node is not null &&
                node.GetValue<bool>();
+    }
+
+    private static bool GetBoolean(JsonObject json, string name, bool defaultValue)
+    {
+        return json.TryGetPropertyValue(name, out var node) && node is not null
+            ? node.GetValue<bool>()
+            : defaultValue;
     }
 
     private static string? GetString(JsonObject json, string name)

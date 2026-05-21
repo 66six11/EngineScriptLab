@@ -67,6 +67,70 @@ public sealed class DapDebugSessionLauncherTests
         Assert.Equal(emit.AssemblyPath, transport.Requests[3].Arguments["program"]!.GetValue<string>());
     }
 
+    [Fact]
+    public void Attach_WhenAdapterResponds_CreatesRuntimeAndSendsAttachHandshakeRequests()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        session.SetSourceBreakpoints(
+            emit.DebugMap.SourceDocumentPath,
+            new[] { new ScriptSourceBreakpointRequest(12, 9) });
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "initialized"
+        });
+        transport.EnqueueResponse(new JsonObject
+        {
+            ["supportsBreakpointLocationsRequest"] = true
+        });
+        transport.EnqueueResponse(new JsonObject
+        {
+            ["breakpoints"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["verified"] = true,
+                    ["line"] = 12,
+                    ["column"] = 9
+                }
+            }
+        });
+        transport.EnqueueResponse(new JsonObject());
+        transport.EnqueueResponse(new JsonObject());
+        var launcher = new DapDebugSessionLauncher(new DapDebugSessionClient(transport, transport));
+
+        var result = launcher.Attach(
+            session,
+            emit.DebugMap,
+            emit.DebugMap.SourceDocumentPath,
+            new JsonObject
+            {
+                ["adapterID"] = "scriptlab-test"
+            },
+            new JsonObject
+            {
+                ["processId"] = 4242,
+                ["hostKind"] = "cppClr",
+                ["terminateOnDisconnect"] = false
+            });
+
+        Assert.NotNull(result.Runtime);
+        Assert.True(result.Capabilities.SupportsBreakpointLocationsRequest);
+        Assert.True(result.InitializedEventReceived);
+        var breakpoint = Assert.Single(result.BreakpointResults);
+        Assert.Equal(ScriptBreakpointBackendStatus.Applied, breakpoint.Status);
+
+        Assert.Equal(
+            new[] { "initialize", "setBreakpoints", "configurationDone", "attach" },
+            transport.Requests.Select(request => request.Command));
+        Assert.Equal("scriptlab-test", transport.Requests[0].Arguments["adapterID"]!.GetValue<string>());
+        Assert.Equal(4242, transport.Requests[3].Arguments["processId"]!.GetValue<int>());
+        Assert.Equal("cppClr", transport.Requests[3].Arguments["hostKind"]!.GetValue<string>());
+        Assert.False(transport.Requests[3].Arguments["terminateOnDisconnect"]!.GetValue<bool>());
+    }
+
     private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
     {
         return new ScriptDebugSession(

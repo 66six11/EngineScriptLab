@@ -442,8 +442,11 @@ Watch 是用户观测概念。
 - `DapProtocolClient` 暴露 `IDapEventSource.DrainEvents()`，`DapDebugSessionClient.DrainStoppedEvents()` 会过滤 stopped event，再由 resolver 转成 `ScriptStoppedEvent`。
 - `DapDebugSessionRuntime` 是当前实验性组合对象，只组合 source breakpoint apply、drained stopped event resolve 和 paused snapshot frame variables。
 - `DapAdapterProcess` 是当前最小 adapter process owner，只负责启动 stdio 进程并暴露 `DapProtocolClient`。
-- `DapDebugSessionLauncher` 已用 fake DAP transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch -> DapDebugSessionRuntime` 的实验握手。
-- 当前还没有接真实 .NET debug adapter、attach 模式或异步事件泵；DAP launch/stopped/frame variables 仍是骨架和单元层闭环。
+- `DapDebugSessionLauncher` 已用 fake DAP transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch/attach -> DapDebugSessionRuntime` 的实验握手。
+- `DapDebugSessionClient` 已有 `disconnect` 和 `terminate` 请求封装，`DapDebugSessionRuntime.Disconnect()` 会发送最小 disconnect 请求。
+- `DapDebugSessionClient` 已有 `continue` 和 `next` 请求封装，`DapDebugSessionRuntime` 只透传执行控制请求；继续运行或单步成功后会让旧 stopped event 失效，新的 stopped event 仍通过 drain/resolver 进入。
+- `DapDebugSessionClient.DrainLifecycleEvents()` 已能手动解析 `terminated` / `exited` 事件，`DapDebugSessionRuntime.DrainLifecycleEvents()` 只透传该结果。
+- 当前还没有接真实 .NET debug adapter、C++ / 托管 C# 混合宿主 attach 模式、异步事件泵、暂停态缓存或进程等待策略；DAP launch/shutdown/execution control/stopped/frame variables 仍是骨架和单元层闭环。
 - synthetic probe stop 永远不调用 frame variable backend；它只能显示 Inspector 和 Watch / Pin Inspect。
 - 未接入 frame variable backend 的真实 debugger stop 会把 Arguments、Locals、This 标记为 unavailable，而不是用 Inspector 或 Watch 值伪装。
 
@@ -464,6 +467,7 @@ Paused:
 
 Continue / Step:
   清空旧 frame / variables reference
+  旧 stopped event 不再允许读取 paused snapshot
 ```
 
 ## 14. DAP 的理论位置
@@ -498,7 +502,57 @@ DAP adapter 只负责真实调试动作。
 
 Graph C# 的语义解释必须留在 DebugMap / DebugSession。
 
-## 15. DAP capability 的意义
+## 15. C++ 直接宿主 CLR 的混合宿主边界
+
+Asharia/VkEngine 的目标宿主方式应按 **C++ 引擎进程直接宿主 CLR / CoreCLR** 设计，而不是把脚本运行时建成一个独立 `dotnet app.dll` 进程。
+
+这会改变调试后端的接入策略，但不应该改变 Graph C# 的语义模型：
+
+```text
+Native engine host process
+  -> initializes CLR hosting layer
+  -> creates managed scripting runtime / AssemblyLoadContext
+  -> loads generated script assembly + PDB
+  -> DebugMap maps script source/graph to managed sequence points
+  -> debugger attaches to process and selects managed script frame
+```
+
+边界规则：
+
+- CLR hosting owner 是 C++ engine runtime/platform 层；ScriptLab 后端只消费宿主暴露的进程、assembly、PDB、entity/handle 和调试入口信息。
+- 本地 JSON-RPC 服务和 IDE 客户端不直接拥有引擎进程；它们只请求 attachDebugHost / continue / step / disconnectDebugHost / paused snapshot。
+- `attachDebugHost` 的调试目标只包含 process id、detach 策略、generated assembly/PDB/debugMap 路径、assembly MVID 和 PDB id；这些是后续 DAP attach 参数包的输入。
+- `DapDebugSessionRuntime` 不假设 debuggee 是它启动的子进程；默认目标应是 attach 到已经初始化 CLR 的 C++ host process。
+- `DapAdapterProcess` 只拥有 adapter 进程，不拥有 native engine host；disconnect/terminate 必须区分“断开调试器”和“终止 debuggee”。
+- `disconnectDebugHost` 默认 detach；只有显式 `terminateDebuggee=true` 或 attach 策略明确允许时才终止 debuggee。
+- `DebugMap` 只描述托管脚本 assembly、PDB、source span、sequence point、IL offset 和 blueprint mapping；不能保存 C++ 裸指针、native object address 或 frame pointer。
+- Inspector 读取引擎对象状态可以来自 C++ host 暴露的托管 binding / handle / entity id，但 Arguments、Locals、This 只能来自当前托管暂停 frame。
+- 如果 adapter 只能看到 native frames、看不到 managed script frame，结果必须是 unsupported/unavailable，不能用 Inspector 或 probe value 冒充 locals。
+- generated script assembly 的加载、卸载和热重载必须通过 C++ host 管理的 CLR hosting API/AssemblyLoadContext 进入；ScriptLab 不绕过 host 私自加载另一份脚本 runtime。
+
+因此后续 backend 需要显式建模两类启动方式：
+
+```text
+Launch managed test host:
+  only for ScriptLab unit/integration tests
+  may use dotnet app.dll to validate DebugMap and DAP shape
+
+Attach C++ CLR host:
+  C++ engine/editor owns debuggee process and CLR lifetime
+  ScriptLab/debug adapter only attaches
+  shutdown defaults to disconnect, not terminate
+```
+
+混合宿主下的最小验证目标不是“能调整个 C++ 引擎”，而是：
+
+- C++ host 能初始化 CLR hosting layer，并加载同一份 generated script assembly + PDB。
+- 能在已加载 generated script assembly 的 host 中命中托管 source/PDB breakpoint。
+- stopped event 能定位到托管 script frame，而不是停在 native engine loop。
+- stack/scopes/variables 能读取脚本参数、locals、`this`。
+- continue/step 后旧 frameId / variablesReference / stopped event 全部失效。
+- detach 不杀死引擎进程，terminate 只能在显式策略允许时发生。
+
+## 16. DAP capability 的意义
 
 不同调试器支持能力不同。
 
@@ -536,7 +590,13 @@ initialize
 setBreakpoints
 configurationDone
 launch
+attach
+continue
+next
+disconnect
+terminate
 stopped event parsing
+terminated/exited event parsing
 DrainEvents -> stopped event filtering
 stackTrace
 scopes
@@ -545,7 +605,7 @@ variables
 
 `DapScriptBreakpointBackend`、`DapScriptStoppedEventResolver` 和 `DapScriptFrameVariableBackend` 都通过这层访问 DAP，避免 breakpoint、stopped event 和 frame variable 路径各自解析 JSON。
 `DapDebugSessionRuntime` 只负责把这三个实验部件装配在一起；它不拥有 adapter 进程，也不启动后台事件泵。
-`DapDebugSessionLauncher` 只负责一次性握手和 runtime 创建；真实 adapter 参数、进程生命周期策略、事件泵和 shutdown 协议仍需后续设计。
+`DapDebugSessionLauncher` 只负责一次性握手和 runtime 创建；真实 adapter 参数、进程生命周期策略、事件泵和等待退出策略仍需后续设计。
 
 如果不支持条件断点：
 
@@ -557,7 +617,7 @@ variables
 
 这是调试体验可信度问题。
 
-## 16. 为什么 setBreakpoints 必须按文件整组提交
+## 17. 为什么 setBreakpoints 必须按文件整组提交
 
 DAP 的 source breakpoint 模型是按 source 文件替换断点集合。
 
@@ -581,7 +641,7 @@ setBreakpoints(file, [bp1, bp2, bp3])
 
 这也是为什么断点状态必须集中管理，不能由每个 UI 控件独立发请求。
 
-## 17. 多实体和高频 Update 的理论处理
+## 18. 多实体和高频 Update 的理论处理
 
 真断点默认暂停整个 debuggee。
 
@@ -608,7 +668,7 @@ Trace / Watch 则天然面向高频和多实体，所以必须在有观察者时
 debugSiteId + optional entity -> hitCount / lastValue / droppedCount
 ```
 
-## 18. 蓝图同步的理论流程
+## 19. 蓝图同步的理论流程
 
 蓝图和源码共享同一份 breakpoint state。
 
@@ -647,7 +707,7 @@ debugger stopped
 
 这三条路径必须回到同一个 `debugSiteId`，否则同步会漂移。
 
-## 19. 设计中的降级策略
+## 20. 设计中的降级策略
 
 调试系统必须明确区分“可用但降级”和“不可用”。
 
@@ -673,7 +733,7 @@ probe backend 成功启用断点时只能返回 `applied + synthetic`，不能�
 - 把 graph node id 当成稳定断点。
 - 把未 verified 的 PDB 位置显示成 verified。
 
-## 20. 当前 V1 的正确边界
+## 21. 当前 V1 的正确边界
 
 当前 V1 应该验证的是调试语义闭环，而不是完整编辑器：
 
@@ -706,7 +766,7 @@ Trace/Watch 和 Breakpoint 语义分离
 高频观察能否不暂停程序？
 ```
 
-## 21. 推荐推进顺序
+## 22. 推荐推进顺序
 
 第一阶段：证明映射正确。
 
@@ -764,7 +824,7 @@ IDE / Rider / standalone editor
   -> 不复制 DebugMap 逻辑
 ```
 
-## 22. 最终判断
+## 23. 最终判断
 
 这套方案成立的关键不在于“能不能画蓝图”，而在于能否坚持以下边界：
 
@@ -778,7 +838,7 @@ IDE / Rider / standalone editor
 
 只要这些边界稳定，后续无论接 Rider、独立编辑器、还是引擎内 editor，调试模型都不会重写。
 
-## 23. 后续扩展架构讨论（未经验证）
+## 24. 后续扩展架构讨论（未经验证）
 本章把后续讨论统一收敛为一个独立研究点：如何从真实 C# 能力、项目索引、第三方 DLL 和用户代码中生成可蓝图化节点，并保证这些节点最终仍能回到源码、调试和写回流程。
 
 这些内容不属于当前 V1 调试闭环的完成条件。当前 V1 只要求证明 `debugSiteId -> DebugMap -> Breakpoint / Trace / Watch / Paused Frame` 这条链路成立；本章记录的是后续可演进方向，均为未经验证的架构假设。
