@@ -25,18 +25,20 @@ public sealed record DapBreakpointBackendCapabilities(
     }
 }
 
-public interface IDapRequestClient
-{
-    JsonObject SendRequest(string command, JsonObject arguments);
-}
-
 public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
 {
-    private readonly IDapRequestClient client;
+    private readonly DapDebugSessionClient client;
     private readonly DapBreakpointBackendCapabilities capabilities;
 
     public DapScriptBreakpointBackend(
         IDapRequestClient client,
+        DapBreakpointBackendCapabilities? capabilities = null)
+        : this(new DapDebugSessionClient(client), capabilities)
+    {
+    }
+
+    public DapScriptBreakpointBackend(
+        DapDebugSessionClient client,
         DapBreakpointBackendCapabilities? capabilities = null)
     {
         this.client = client;
@@ -50,7 +52,7 @@ public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
         var fullPath = Path.GetFullPath(sourcePath);
         var results = new ScriptBreakpointBackendResult?[breakpoints.Count];
         var sentBreakpoints = new List<(int OriginalIndex, ScriptBreakpointState Breakpoint)>();
-        var requestBreakpoints = new JsonArray();
+        var requestBreakpoints = new List<DapSourceBreakpointRequest>();
 
         for (var index = 0; index < breakpoints.Count; index++)
         {
@@ -67,22 +69,14 @@ public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
             }
 
             sentBreakpoints.Add((index, breakpoint));
-            requestBreakpoints.Add(CreateDapSourceBreakpoint(breakpoint));
+            requestBreakpoints.Add(new DapSourceBreakpointRequest(
+                breakpoint.Line,
+                breakpoint.Column,
+                breakpoint.Condition,
+                breakpoint.HitCondition));
         }
 
-        var responseBody = client.SendRequest(
-            "setBreakpoints",
-            new JsonObject
-            {
-                ["source"] = new JsonObject
-                {
-                    ["path"] = fullPath
-                },
-                ["breakpoints"] = requestBreakpoints,
-                ["sourceModified"] = false
-            });
-
-        var responseBreakpoints = GetResponseBreakpoints(responseBody);
+        var responseBreakpoints = client.SetBreakpoints(fullPath, requestBreakpoints);
         for (var responseIndex = 0; responseIndex < sentBreakpoints.Count; responseIndex++)
         {
             var sent = sentBreakpoints[responseIndex];
@@ -96,13 +90,13 @@ public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
                 continue;
             }
 
-            var responseBreakpoint = responseBreakpoints[responseIndex]!.AsObject();
-            var verified = GetBoolean(responseBreakpoint, "verified");
+            var responseBreakpoint = responseBreakpoints[responseIndex];
+            var verified = responseBreakpoint.Verified;
             results[sent.OriginalIndex] = CreateResult(
                 sent.Breakpoint,
                 verified ? ScriptBreakpointBackendStatus.Applied : ScriptBreakpointBackendStatus.Unbound,
                 verified,
-                GetString(responseBreakpoint, "message") ??
+                responseBreakpoint.Message ??
                 (verified
                     ? "Applied to DAP adapter."
                     : "DAP adapter returned an unverified breakpoint."));
@@ -134,35 +128,6 @@ public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
         return null;
     }
 
-    private static JsonObject CreateDapSourceBreakpoint(ScriptBreakpointState breakpoint)
-    {
-        var sourceBreakpoint = new JsonObject
-        {
-            ["line"] = breakpoint.Line,
-            ["column"] = breakpoint.Column
-        };
-
-        if (!string.IsNullOrWhiteSpace(breakpoint.Condition))
-        {
-            sourceBreakpoint["condition"] = breakpoint.Condition;
-        }
-
-        if (!string.IsNullOrWhiteSpace(breakpoint.HitCondition))
-        {
-            sourceBreakpoint["hitCondition"] = breakpoint.HitCondition;
-        }
-
-        return sourceBreakpoint;
-    }
-
-    private static IReadOnlyList<JsonNode?> GetResponseBreakpoints(JsonObject responseBody)
-    {
-        return responseBody.TryGetPropertyValue("breakpoints", out var breakpointsNode) &&
-               breakpointsNode is JsonArray breakpoints
-            ? breakpoints.ToArray()
-            : Array.Empty<JsonNode?>();
-    }
-
     private static ScriptBreakpointBackendResult CreateResult(
         ScriptBreakpointState breakpoint,
         string status,
@@ -181,19 +146,5 @@ public sealed class DapScriptBreakpointBackend : IScriptBreakpointBackend
             breakpoint.GraphNodeId,
             ProbeId: null,
             message);
-    }
-
-    private static bool GetBoolean(JsonObject json, string name)
-    {
-        return json.TryGetPropertyValue(name, out var node) &&
-               node is not null &&
-               node.GetValue<bool>();
-    }
-
-    private static string? GetString(JsonObject json, string name)
-    {
-        return json.TryGetPropertyValue(name, out var node)
-            ? node?.GetValue<string>()
-            : null;
     }
 }

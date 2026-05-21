@@ -314,6 +314,7 @@ public sealed class ScriptDebugSessionTests
         Assert.Equal(ScriptStoppedReason.Breakpoint, stopped.Reason);
         Assert.False(stopped.Synthetic);
         Assert.True(stopped.AllThreadsStopped);
+        Assert.Null(stopped.ThreadId);
         Assert.Equal(branchProbe.ProbeId, stopped.ProbeId);
         Assert.Equal(branchSite.DebugSiteId, stopped.DebugSiteId);
         Assert.Equal(branchSite.GraphNodeId, stopped.GraphNodeId);
@@ -323,6 +324,19 @@ public sealed class ScriptDebugSessionTests
         Assert.Equal(9, stopped.Column);
         Assert.NotNull(stopped.PdbSequencePoint);
         Assert.NotNull(stopped.Binding);
+    }
+
+    [Fact]
+    public void ResolveStoppedProbe_WhenThreadIdIsProvided_RecordsThreadIdForDebuggerStop()
+    {
+        var emit = EmitPlayerMove();
+        var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
+        var session = CreateSession(emit);
+
+        var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: false, threadId: 11);
+
+        Assert.False(stopped.Synthetic);
+        Assert.Equal(11, stopped.ThreadId);
     }
 
     [Fact]

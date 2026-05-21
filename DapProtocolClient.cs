@@ -12,7 +12,7 @@ public sealed class DapProtocolException : Exception
     }
 }
 
-public sealed class DapProtocolClient : IDapRequestClient, IDisposable
+public sealed class DapProtocolClient : IDapRequestClient, IDapEventSource, IDisposable
 {
     private readonly Stream input;
     private readonly Stream output;

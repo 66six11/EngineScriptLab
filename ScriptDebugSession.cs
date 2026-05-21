@@ -93,6 +93,7 @@ public sealed record ScriptStoppedEvent(
     string Reason,
     bool AllThreadsStopped,
     bool Synthetic,
+    int? ThreadId,
     int? ProbeId,
     string? DebugSiteId,
     string? GraphNodeId,
@@ -383,6 +384,7 @@ public sealed class ScriptDebugSession
                 ScriptStoppedReason.Unknown,
                 AllThreadsStopped: false,
                 Synthetic: true,
+                ThreadId: null,
                 probeEvent.ProbeId,
                 DebugSiteId: null,
                 GraphNodeId: null,
@@ -398,7 +400,7 @@ public sealed class ScriptDebugSession
         return ResolveStoppedProbe(probeEvent.ProbeId, synthetic: true);
     }
 
-    public ScriptStoppedEvent ResolveStoppedProbe(int probeId, bool synthetic)
+    public ScriptStoppedEvent ResolveStoppedProbe(int probeId, bool synthetic, int? threadId = null)
     {
         if (!siteByProbeId.TryGetValue(probeId, out var indexedSite))
         {
@@ -407,6 +409,7 @@ public sealed class ScriptDebugSession
                 ScriptStoppedReason.Breakpoint,
                 AllThreadsStopped: !synthetic,
                 Synthetic: synthetic,
+                ThreadId: synthetic ? null : threadId,
                 probeId,
                 DebugSiteId: null,
                 GraphNodeId: null,
@@ -431,6 +434,7 @@ public sealed class ScriptDebugSession
             ScriptStoppedReason.Breakpoint,
             AllThreadsStopped: !synthetic,
             Synthetic: synthetic,
+            ThreadId: synthetic ? null : threadId,
             probeId,
             binding.DebugSiteId ?? indexedSite.Site.DebugSiteId,
             binding.GraphNodeId ?? indexedSite.Site.GraphNodeId,
@@ -443,6 +447,62 @@ public sealed class ScriptDebugSession
             synthetic
                 ? "Resolved synthetic probe breakpoint event to debug map selection."
                 : "Resolved debugger breakpoint stop to debug map selection.");
+    }
+
+    public ScriptStoppedEvent ResolveDebuggerStoppedFrame(
+        string reason,
+        bool allThreadsStopped,
+        int? threadId,
+        string sourcePath,
+        int line,
+        int column)
+    {
+        var binding = ResolveSourceBreakpoint(sourcePath, line, column);
+        var normalizedReason = NormalizeStoppedReason(reason);
+        var location = ResolveBreakpointLocation(
+            binding,
+            sourcePath,
+            line,
+            column);
+
+        if (binding.Status == ScriptBreakpointBindingStatus.Unbound)
+        {
+            return new ScriptStoppedEvent(
+                ScriptStoppedEventStatus.Unresolved,
+                normalizedReason,
+                allThreadsStopped,
+                Synthetic: false,
+                threadId,
+                ProbeId: null,
+                DebugSiteId: null,
+                GraphNodeId: null,
+                FunctionId: null,
+                location.SourcePath,
+                location.Line,
+                location.Column,
+                PdbSequencePoint: null,
+                Binding: binding,
+                "Debugger stopped frame could not be resolved to a debug map site.");
+        }
+
+        return new ScriptStoppedEvent(
+            ScriptStoppedEventStatus.Resolved,
+            normalizedReason,
+            allThreadsStopped,
+            Synthetic: false,
+            threadId,
+            ProbeId: null,
+            binding.DebugSiteId,
+            binding.GraphNodeId,
+            binding.FunctionId,
+            location.SourcePath,
+            location.Line,
+            location.Column,
+            binding.PdbSequencePoint,
+            binding,
+            binding.Status == ScriptBreakpointBindingStatus.SourceOnly
+                ? "Resolved debugger stopped frame to source-only script location."
+                : "Resolved debugger stopped frame to debug map selection.");
     }
 
     public ScriptProbeEventIngestResult IngestProbeEvents(IReadOnlyList<DebugRuntimeProbeEvent> probeEvents)
@@ -1315,6 +1375,17 @@ public sealed class ScriptDebugSession
             site.Site.BreakabilityHint,
             site.Site.BreakableVerified,
             site.Site.PdbSequencePoint);
+    }
+
+    private static string NormalizeStoppedReason(string reason)
+    {
+        return reason switch
+        {
+            ScriptStoppedReason.Breakpoint => ScriptStoppedReason.Breakpoint,
+            ScriptStoppedReason.Step => ScriptStoppedReason.Step,
+            ScriptStoppedReason.Pause => ScriptStoppedReason.Pause,
+            _ => ScriptStoppedReason.Unknown
+        };
     }
 
     private bool TryGetPosition(int line, int column, out int position)

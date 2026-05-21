@@ -436,7 +436,12 @@ Watch 是用户观测概念。
 
 当前实现边界：
 
-- `ScriptDebugSession.ReadPausedSnapshot` 已预留 `IScriptFrameVariableBackend`，真实 debugger stop 可通过该接口填充 Arguments、Locals、This。
+- `ScriptDebugSession.ReadPausedSnapshot` 已预留 `IScriptFrameVariableBackend`，非 synthetic debugger stop 可通过该接口填充 Arguments、Locals、This。
+- 实验层已有 `DapDebugSessionClient` 和 `DapScriptFrameVariableBackend`，用 fake DAP 响应验证 `threadId -> stackTrace -> scopes -> variables -> paused snapshot`。
+- 实验层已有 `DapScriptStoppedEventResolver`，用 fake DAP `stopped` event 和 `stackTrace` 验证 `stopped.threadId -> ScriptStoppedEvent.ThreadId -> DebugMap source binding`。
+- `DapProtocolClient` 暴露 `IDapEventSource.DrainEvents()`，`DapDebugSessionClient.DrainStoppedEvents()` 会过滤 stopped event，再由 resolver 转成 `ScriptStoppedEvent`。
+- `DapDebugSessionRuntime` 是当前实验性组合对象，只组合 source breakpoint apply、drained stopped event resolve 和 paused snapshot frame variables。
+- 当前还没有接真实 debug adapter 进程启动、attach 或异步事件泵；DAP stopped/frame variables 仍是单元层闭环。
 - synthetic probe stop 永远不调用 frame variable backend；它只能显示 Inspector 和 Watch / Pin Inspect。
 - 未接入 frame variable backend 的真实 debugger stop 会把 Arguments、Locals、This 标记为 unavailable，而不是用 Inspector 或 Watch 值伪装。
 
@@ -521,6 +526,20 @@ supportsHitConditionalBreakpoints
 supportsBreakpointLocationsRequest
 supportsInstructionBreakpoints
 ```
+
+当前 `DapDebugSessionClient` 已统一封装：
+
+```text
+setBreakpoints
+stopped event parsing
+DrainEvents -> stopped event filtering
+stackTrace
+scopes
+variables
+```
+
+`DapScriptBreakpointBackend`、`DapScriptStoppedEventResolver` 和 `DapScriptFrameVariableBackend` 都通过这层访问 DAP，避免 breakpoint、stopped event 和 frame variable 路径各自解析 JSON。
+`DapDebugSessionRuntime` 只负责把这三个实验部件装配在一起；它不拥有 adapter 进程、不做 launch/attach，也不启动后台事件泵。
 
 如果不支持条件断点：
 
