@@ -86,6 +86,7 @@ public sealed class DapDebugSessionRuntimeTests
         var snapshot = runtime.ReadPausedSnapshot(host, stopped, entityId: 101);
 
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, backendResult.Status);
+        Assert.Equal(DapDebugSessionPhase.Stopped, runtime.Lifecycle.Phase);
         Assert.False(backendResult.Synthetic);
         Assert.Equal(ScriptStoppedEventStatus.Resolved, stopped.Status);
         Assert.Equal(11, stopped.ThreadId);
@@ -179,6 +180,7 @@ public sealed class DapDebugSessionRuntimeTests
         var request = Assert.Single(transport.Requests);
         Assert.Equal("disconnect", request.Command);
         Assert.True(request.Arguments["terminateDebuggee"]!.GetValue<bool>());
+        Assert.Equal(DapDebugSessionPhase.Disconnected, runtime.Lifecycle.Phase);
     }
 
     [Fact]
@@ -205,6 +207,49 @@ public sealed class DapDebugSessionRuntimeTests
     }
 
     [Fact]
+    public void Runtime_DrainDebugEvents_WhenLifecycleFollowsStoppedEvent_InvalidatesStoppedEvent()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var host = DebugScriptHost.Load(emit);
+        host.MountBehavior(entityId: 101, "com.game.PlayerMove");
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint",
+                ["threadId"] = 11,
+                ["allThreadsStopped"] = true
+            }
+        });
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "terminated"
+        });
+        transport.EnqueueResponse(CreateStackTraceResponse(emit.DebugMap.SourceDocumentPath));
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        var drain = runtime.DrainDebugEvents();
+        var stopped = Assert.Single(drain.StoppedEvents);
+
+        Assert.Null(drain.CurrentStoppedEvent);
+        Assert.Equal(DapDebugSessionPhase.Terminated, runtime.Lifecycle.Phase);
+        Assert.Equal(DapDebugSessionPhase.Terminated, drain.Lifecycle.Phase);
+        Assert.Equal(DapLifecycleEventKind.Terminated, Assert.Single(drain.LifecycleEvents).Kind);
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => runtime.ReadPausedSnapshot(host, stopped, entityId: 101));
+        Assert.Contains("no longer current", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { "stackTrace" }, transport.Requests.Select(request => request.Command));
+    }
+
+    [Fact]
     public void Runtime_ContinueAndNext_SendExecutionControlRequests()
     {
         var emit = EmitPlayerMove();
@@ -224,6 +269,7 @@ public sealed class DapDebugSessionRuntimeTests
         runtime.Next(threadId: 11);
 
         Assert.True(continueResult.AllThreadsContinued);
+        Assert.Equal(DapDebugSessionPhase.Running, runtime.Lifecycle.Phase);
         Assert.Equal(new[] { "continue", "next" }, transport.Requests.Select(request => request.Command));
         Assert.Equal(11, transport.Requests[0].Arguments["threadId"]!.GetValue<int>());
         Assert.Equal(11, transport.Requests[1].Arguments["threadId"]!.GetValue<int>());

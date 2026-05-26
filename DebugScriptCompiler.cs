@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -147,7 +148,7 @@ public static class DebugScriptCompiler
         var compilation = CSharpCompilation.Create(
             assemblyName,
             syntaxTrees,
-            GetTrustedPlatformReferences(),
+            GetPlatformReferences(),
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Debug,
@@ -204,6 +205,46 @@ public static class DebugScriptCompiler
             debugMapPath,
             emittedManifest,
             debugMap);
+    }
+
+    private static IReadOnlyList<MetadataReference> GetPlatformReferences()
+    {
+        var referenceAssemblyPaths = GetReferenceAssemblyPaths();
+        return referenceAssemblyPaths.Count > 0
+            ? referenceAssemblyPaths
+                .Select(path => MetadataReference.CreateFromFile(path))
+                .ToArray()
+            : GetTrustedPlatformReferences();
+    }
+
+    private static IReadOnlyList<string> GetReferenceAssemblyPaths()
+    {
+        var runtimeDirectory = new DirectoryInfo(RuntimeEnvironment.GetRuntimeDirectory());
+        var dotnetRoot = runtimeDirectory.Parent?.Parent?.Parent;
+        if (dotnetRoot is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var referencePackRoot = Path.Combine(dotnetRoot.FullName, "packs", "Microsoft.NETCore.App.Ref");
+        if (!Directory.Exists(referencePackRoot))
+        {
+            return Array.Empty<string>();
+        }
+
+        var targetFramework = $"net{Environment.Version.Major}.0";
+        var referenceDirectory = Directory
+            .EnumerateDirectories(referencePackRoot)
+            .Select(versionDirectory => Path.Combine(versionDirectory, "ref", targetFramework))
+            .Where(Directory.Exists)
+            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        return referenceDirectory is null
+            ? Array.Empty<string>()
+            : Directory
+                .EnumerateFiles(referenceDirectory, "*.dll")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
     }
 
     private static IReadOnlyList<MetadataReference> GetTrustedPlatformReferences()

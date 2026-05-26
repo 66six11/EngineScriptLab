@@ -1,4 +1,8 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using ScriptLab;
 
@@ -39,6 +43,14 @@ public sealed class DebugScriptCompilerTests
         var instrumentedSource = File.ReadAllText(result.InstrumentedSourcePath);
         Assert.Contains("#line hidden", instrumentedSource);
         Assert.Contains("#line 12", instrumentedSource);
+        Assert.Contains($"#line 12 \"{result.DebugMap.SourceDocumentPath}\"", instrumentedSource);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.DoesNotContain(
+                result.DebugMap.SourceDocumentPath.Replace("\\", "\\\\", StringComparison.Ordinal),
+                instrumentedSource);
+        }
+
         Assert.Contains($"DebugProbe.Enter({branchSite.ProbeId})", instrumentedSource);
         Assert.Contains($"DebugProbe.Enter({translateSite.ProbeId})", instrumentedSource);
 
@@ -78,6 +90,51 @@ public sealed class DebugScriptCompilerTests
         Assert.Equal(result.DebugMap.BuildId, debugMapRoot.GetProperty("buildId").GetString());
         Assert.Equal(result.DebugMap.AssemblyMvid, debugMapRoot.GetProperty("assemblyMvid").GetString());
         Assert.Equal(result.DebugMap.PdbId, debugMapRoot.GetProperty("pdbId").GetString());
+    }
+
+    [Fact]
+    public void EmittedAssembly_WhenReferencedBySdkStyleHost_CompilesAgainstReferenceAssemblies()
+    {
+        var outputDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "ScriptLab.Tests",
+            Guid.NewGuid().ToString("N"));
+        var result = DebugScriptCompiler.EmitFile(
+            GetSamplePath("PlayerMove.ash.cs"),
+            outputDirectory);
+        var source = """
+            using Asharia.Behavior;
+            using com.game;
+
+            public static class Host
+            {
+                public static void Run()
+                {
+                    Input.SetKeyDown(Key.W, true);
+                    _ = new PlayerMove();
+                }
+            }
+            """;
+        var references = GetReferenceAssemblyPaths()
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Append(MetadataReference.CreateFromFile(result.AssemblyPath))
+            .ToArray();
+        var compilation = CSharpCompilation.Create(
+            "ScriptLab.GeneratedHost",
+            new[] { CSharpSyntaxTree.ParseText(source, encoding: Encoding.UTF8) },
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        using var stream = new MemoryStream();
+        var emitResult = compilation.Emit(stream);
+
+        Assert.True(
+            emitResult.Success,
+            string.Join(
+                Environment.NewLine,
+                emitResult.Diagnostics
+                    .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                    .Select(diagnostic => diagnostic.ToString())));
     }
 
     [Fact]
@@ -180,6 +237,30 @@ public sealed class DebugScriptCompilerTests
     {
         Assert.Equal(expected, (T)instance.GetType().GetProperty("Value")!.GetValue(instance)!);
         return true;
+    }
+
+    private static IReadOnlyList<string> GetReferenceAssemblyPaths()
+    {
+        var runtimeDirectory = new DirectoryInfo(RuntimeEnvironment.GetRuntimeDirectory());
+        var dotnetRoot = runtimeDirectory.Parent?.Parent?.Parent;
+        Assert.NotNull(dotnetRoot);
+
+        var referencePackRoot = Path.Combine(dotnetRoot.FullName, "packs", "Microsoft.NETCore.App.Ref");
+        Assert.True(Directory.Exists(referencePackRoot), $"Reference pack root does not exist: {referencePackRoot}");
+
+        var targetFramework = $"net{Environment.Version.Major}.0";
+        var referenceDirectory = Directory
+            .EnumerateDirectories(referencePackRoot)
+            .Select(versionDirectory => Path.Combine(versionDirectory, "ref", targetFramework))
+            .Where(Directory.Exists)
+            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        Assert.NotNull(referenceDirectory);
+
+        return Directory
+            .EnumerateFiles(referenceDirectory, "*.dll")
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string GetSamplePath(string fileName)

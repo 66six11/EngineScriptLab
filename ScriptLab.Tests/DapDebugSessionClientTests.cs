@@ -293,6 +293,100 @@ public sealed class DapDebugSessionClientTests
         Assert.Empty(transport.Events);
     }
 
+    [Fact]
+    public void DrainDebugEvents_WhenEventSourceHasStoppedAndLifecycleEvents_ReturnsBothFromOneDrain()
+    {
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint",
+                ["threadId"] = 11,
+                ["allThreadsStopped"] = true
+            }
+        });
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "terminated"
+        });
+        var client = new DapDebugSessionClient(transport, transport);
+
+        var drain = client.DrainDebugEvents();
+
+        Assert.Equal(2, drain.Events.Count);
+        Assert.NotNull(drain.Events[0].StoppedEvent);
+        Assert.NotNull(drain.Events[1].LifecycleEvent);
+        Assert.Equal(11, Assert.Single(drain.StoppedEvents).ThreadId);
+        Assert.Equal(DapLifecycleEventKind.Terminated, Assert.Single(drain.LifecycleEvents).Kind);
+        Assert.Empty(transport.Events);
+    }
+
+    [Fact]
+    public void DrainDebugEvents_WhenEventSourceHasBreakpointEvent_ReturnsBreakpointEvent()
+    {
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "breakpoint",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "changed",
+                ["breakpoint"] = new JsonObject
+                {
+                    ["verified"] = true,
+                    ["line"] = 14,
+                    ["column"] = 13,
+                    ["source"] = new JsonObject
+                    {
+                        ["path"] = @"C:\Project\PlayerMove.ash.cs"
+                    }
+                }
+            }
+        });
+        var client = new DapDebugSessionClient(transport, transport);
+
+        var breakpointEvent = Assert.Single(client.DrainDebugEvents().BreakpointEvents);
+
+        Assert.Equal("changed", breakpointEvent.Reason);
+        Assert.True(breakpointEvent.Verified);
+        Assert.Equal(14, breakpointEvent.Line);
+        Assert.Equal(13, breakpointEvent.Column);
+        Assert.Equal(@"C:\Project\PlayerMove.ash.cs", breakpointEvent.SourcePath);
+    }
+
+    [Fact]
+    public void WaitForInitializedEvent_WhenOtherEventsAreDrained_BuffersThem()
+    {
+        var transport = new FakeDapTransport();
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint",
+                ["threadId"] = 11,
+                ["allThreadsStopped"] = true
+            }
+        });
+        transport.Events.Add(new JsonObject
+        {
+            ["type"] = "event",
+            ["event"] = "initialized"
+        });
+        var client = new DapDebugSessionClient(transport, transport);
+
+        Assert.True(client.WaitForInitializedEvent(TimeSpan.Zero));
+        var stoppedEvent = Assert.Single(client.DrainStoppedEvents());
+
+        Assert.Equal(11, stoppedEvent.ThreadId);
+    }
+
     private sealed class FakeDapRequestClient : IDapRequestClient
     {
         private readonly Queue<JsonObject> responses = new();

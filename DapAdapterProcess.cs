@@ -44,6 +44,8 @@ public sealed class DapAdapterProcess : IDisposable
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start DAP adapter process '{fileName}'.");
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginErrorReadLine();
         return new DapAdapterProcess(
             process,
             new DapProtocolClient(

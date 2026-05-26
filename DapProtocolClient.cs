@@ -12,14 +12,18 @@ public sealed class DapProtocolException : Exception
     }
 }
 
-public sealed class DapProtocolClient : IDapRequestClient, IDapEventSource, IDisposable
+public sealed class DapProtocolClient : IDapRequestClient, IDapPendingRequestClient, IDapEventSource, IDisposable
 {
     private readonly Stream input;
     private readonly Stream output;
     private readonly bool leaveOpen;
     private readonly object syncRoot = new();
     private readonly Queue<JsonObject> pendingEvents = new();
+    private readonly Dictionary<int, JsonObject> pendingResponses = new();
+    private readonly Thread readerThread;
     private int nextSequence = 1;
+    private Exception? readerException;
+    private bool readerCompleted;
     private bool disposed;
 
     public DapProtocolClient(Stream input, Stream output, bool leaveOpen = false)
@@ -27,12 +31,29 @@ public sealed class DapProtocolClient : IDapRequestClient, IDapEventSource, IDis
         this.input = input;
         this.output = output;
         this.leaveOpen = leaveOpen;
+        readerThread = new Thread(ReadMessages)
+        {
+            IsBackground = true,
+            Name = "ScriptLab DAP reader"
+        };
+        readerThread.Start();
     }
 
     public JsonObject SendRequest(string command, JsonObject arguments)
     {
+        return SendRequestPending(command, arguments).Wait();
+    }
+
+    public DapPendingRequest SendRequestPending(string command, JsonObject arguments)
+    {
         ObjectDisposedException.ThrowIf(disposed, this);
 
+        var sequence = WriteRequest(command, arguments);
+        return new DapPendingRequest(() => WaitForResponse(sequence, command));
+    }
+
+    private int WriteRequest(string command, JsonObject arguments)
+    {
         lock (syncRoot)
         {
             var sequence = nextSequence++;
@@ -43,47 +64,52 @@ public sealed class DapProtocolClient : IDapRequestClient, IDapEventSource, IDis
                 ["command"] = command,
                 ["arguments"] = arguments.DeepClone()
             });
+            return sequence;
+        }
+    }
 
-            while (true)
+    private JsonObject WaitForResponse(int sequence, string command)
+    {
+        lock (syncRoot)
+        {
+            JsonObject? message;
+            while (!pendingResponses.Remove(sequence, out message))
             {
-                var message = ReadMessage();
-                var type = GetString(message, "type");
-                if (string.Equals(type, "event", StringComparison.Ordinal))
-                {
-                    pendingEvents.Enqueue(message);
-                    continue;
-                }
-
-                if (!string.Equals(type, "response", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var requestSequence = GetInt32(message, "request_seq");
-                if (requestSequence != sequence)
-                {
-                    continue;
-                }
-
-                var responseCommand = GetString(message, "command");
-                if (!string.Equals(responseCommand, command, StringComparison.Ordinal))
+                if (readerException is not null)
                 {
                     throw new DapProtocolException(
-                        $"DAP response command '{responseCommand}' did not match request command '{command}'.");
+                        $"DAP reader failed before response for request '{command}': {readerException.Message}");
                 }
 
-                if (!GetBoolean(message, "success", defaultValue: true))
+                if (readerCompleted)
                 {
                     throw new DapProtocolException(
-                        GetString(message, "message") ??
-                        $"DAP request '{command}' failed.");
+                        $"DAP stream closed before response for request '{command}'.");
                 }
 
-                return message.TryGetPropertyValue("body", out var bodyNode) &&
-                       bodyNode is JsonObject body
-                    ? body
-                    : new JsonObject();
+                Monitor.Wait(syncRoot);
             }
+
+            message ??= new JsonObject();
+
+            var responseCommand = GetString(message, "command");
+            if (!string.Equals(responseCommand, command, StringComparison.Ordinal))
+            {
+                throw new DapProtocolException(
+                    $"DAP response command '{responseCommand}' did not match request command '{command}'.");
+            }
+
+            if (!GetBoolean(message, "success", defaultValue: true))
+            {
+                throw new DapProtocolException(
+                    GetString(message, "message") ??
+                    $"DAP request '{command}' failed.");
+            }
+
+            return message.TryGetPropertyValue("body", out var bodyNode) &&
+                   bodyNode is JsonObject body
+                ? body
+                : new JsonObject();
         }
     }
 
@@ -109,6 +135,67 @@ public sealed class DapProtocolClient : IDapRequestClient, IDapEventSource, IDis
         {
             input.Dispose();
             output.Dispose();
+        }
+
+        lock (syncRoot)
+        {
+            readerCompleted = true;
+            Monitor.PulseAll(syncRoot);
+        }
+    }
+
+    private void ReadMessages()
+    {
+        try
+        {
+            while (true)
+            {
+                DispatchMessage(ReadMessage());
+            }
+        }
+        catch (EndOfStreamException)
+        {
+            CompleteReader(null);
+        }
+        catch (ObjectDisposedException) when (disposed)
+        {
+            CompleteReader(null);
+        }
+        catch (Exception exception)
+        {
+            CompleteReader(exception);
+        }
+    }
+
+    private void DispatchMessage(JsonObject message)
+    {
+        lock (syncRoot)
+        {
+            var type = GetString(message, "type");
+            if (string.Equals(type, "event", StringComparison.Ordinal))
+            {
+                pendingEvents.Enqueue(message);
+            }
+            else if (string.Equals(type, "response", StringComparison.Ordinal))
+            {
+                var requestSequence = GetInt32(message, "request_seq");
+                if (requestSequence is not null)
+                {
+                    pendingResponses[requestSequence.Value] = message;
+                }
+            }
+
+            Monitor.PulseAll(syncRoot);
+        }
+    }
+
+    private void CompleteReader(Exception? exception)
+    {
+        lock (syncRoot)
+        {
+            readerException = exception;
+            readerCompleted = true;
+            Monitor.PulseAll(syncRoot);
         }
     }
 

@@ -181,7 +181,6 @@ internal sealed class DebugInstrumentationRewriter : CSharpSyntaxRewriter
     private static string EscapeLineDirectivePath(string path)
     {
         return Path.GetFullPath(path)
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal);
     }
 }

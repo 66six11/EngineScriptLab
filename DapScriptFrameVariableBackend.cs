@@ -96,7 +96,12 @@ public sealed class DapScriptFrameVariableBackend : IScriptFrameVariableBackend
                 ProbeId: null,
                 PinId: null,
                 Sequence: null,
-                HitCount: null))
+                HitCount: null)
+            {
+                VariablesReference = variable.VariablesReference > 0
+                    ? variable.VariablesReference
+                    : null
+            })
             .ToArray();
     }
 

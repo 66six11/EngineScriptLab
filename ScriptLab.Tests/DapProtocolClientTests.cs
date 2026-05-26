@@ -98,6 +98,65 @@ public sealed class DapProtocolClientTests
     }
 
     [Fact]
+    public void SendRequestPending_AllowsLaterRequestsBeforeWaitingForFirstResponse()
+    {
+        using var input = new MemoryStream();
+        WriteFrame(input, new JsonObject
+        {
+            ["seq"] = 3,
+            ["type"] = "response",
+            ["request_seq"] = 2,
+            ["success"] = true,
+            ["command"] = "configurationDone"
+        });
+        WriteFrame(input, new JsonObject
+        {
+            ["seq"] = 4,
+            ["type"] = "response",
+            ["request_seq"] = 1,
+            ["success"] = true,
+            ["command"] = "launch"
+        });
+        input.Position = 0;
+        using var output = new MemoryStream();
+        using var client = new DapProtocolClient(input, output, leaveOpen: true);
+
+        var launchRequest = client.SendRequestPending("launch", new JsonObject());
+        client.SendRequest("configurationDone", new JsonObject());
+        launchRequest.Wait();
+
+        output.Position = 0;
+        var launch = ReadFrame(output);
+        var configurationDone = ReadFrame(output);
+        Assert.Equal(1, launch["seq"]!.GetValue<int>());
+        Assert.Equal("launch", launch["command"]!.GetValue<string>());
+        Assert.Equal(2, configurationDone["seq"]!.GetValue<int>());
+        Assert.Equal("configurationDone", configurationDone["command"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void DrainEvents_WhenEventArrivesWithoutRequest_ReturnsEvent()
+    {
+        using var input = new BlockingStream();
+        using var output = new MemoryStream();
+        using var client = new DapProtocolClient(input, output, leaveOpen: true);
+
+        WriteFrame(input, new JsonObject
+        {
+            ["seq"] = 7,
+            ["type"] = "event",
+            ["event"] = "stopped",
+            ["body"] = new JsonObject
+            {
+                ["reason"] = "breakpoint"
+            }
+        });
+
+        var @event = Assert.Single(DrainEventsEventually(client));
+        Assert.Equal("stopped", @event["event"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void FromInitializeResponseBody_ReadsBreakpointCapabilities()
     {
         var capabilities = DapBreakpointBackendCapabilities.FromInitializeResponseBody(new JsonObject
@@ -176,5 +235,101 @@ public sealed class DapProtocolClientTests
         }
 
         return JsonNode.Parse(Encoding.UTF8.GetString(bodyBytes))!.AsObject();
+    }
+
+    private static IReadOnlyList<JsonObject> DrainEventsEventually(DapProtocolClient client)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            var events = client.DrainEvents();
+            if (events.Count > 0)
+            {
+                return events;
+            }
+
+            Thread.Sleep(10);
+        }
+
+        return client.DrainEvents();
+    }
+
+    private sealed class BlockingStream : Stream
+    {
+        private readonly object syncRoot = new();
+        private readonly Queue<byte> bytes = new();
+        private bool disposed;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            lock (syncRoot)
+            {
+                while (bytes.Count == 0 && !disposed)
+                {
+                    Monitor.Wait(syncRoot);
+                }
+
+                if (bytes.Count == 0)
+                {
+                    return 0;
+                }
+
+                var read = Math.Min(count, bytes.Count);
+                for (var index = 0; index < read; index++)
+                {
+                    buffer[offset + index] = bytes.Dequeue();
+                }
+
+                return read;
+            }
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            lock (syncRoot)
+            {
+                for (var index = 0; index < count; index++)
+                {
+                    bytes.Enqueue(buffer[offset + index]);
+                }
+
+                Monitor.PulseAll(syncRoot);
+            }
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            lock (syncRoot)
+            {
+                disposed = true;
+                Monitor.PulseAll(syncRoot);
+            }
+
+            base.Dispose(disposing);
+        }
     }
 }

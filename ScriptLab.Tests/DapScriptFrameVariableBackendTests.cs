@@ -104,6 +104,7 @@ public sealed class DapScriptFrameVariableBackendTests
         var amount = Assert.Single(snapshot.Locals);
         Assert.Equal("amount", amount.Name);
         Assert.Equal("dap:locals:202:amount", amount.VariableId);
+        Assert.Null(amount.VariablesReference);
 
         var speed = Assert.Single(snapshot.ThisVariables);
         Assert.Equal("Speed", speed.Name);

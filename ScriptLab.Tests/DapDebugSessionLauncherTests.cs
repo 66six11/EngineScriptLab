@@ -24,6 +24,7 @@ public sealed class DapDebugSessionLauncherTests
             ["supportsConditionalBreakpoints"] = true,
             ["supportsHitConditionalBreakpoints"] = true
         });
+        transport.EnqueueResponse(new JsonObject());
         transport.EnqueueResponse(new JsonObject
         {
             ["breakpoints"] = new JsonArray
@@ -37,7 +38,7 @@ public sealed class DapDebugSessionLauncherTests
             }
         });
         transport.EnqueueResponse(new JsonObject());
-        transport.EnqueueResponse(new JsonObject());
+        transport.RequireConfigurationDoneBeforePendingWait = true;
         var launcher = new DapDebugSessionLauncher(new DapDebugSessionClient(transport, transport));
 
         var result = launcher.Launch(
@@ -54,6 +55,17 @@ public sealed class DapDebugSessionLauncherTests
             });
 
         Assert.NotNull(result.Runtime);
+        Assert.Equal(DapDebugSessionPhase.Launched, result.Lifecycle.Phase);
+        Assert.Equal(
+            new[]
+            {
+                DapDebugSessionPhase.Created,
+                DapDebugSessionPhase.Initialized,
+                DapDebugSessionPhase.BreakpointsConfigured,
+                DapDebugSessionPhase.ConfigurationDone,
+                DapDebugSessionPhase.Launched
+            },
+            result.Lifecycle.CompletedPhases);
         Assert.True(result.Capabilities.SupportsConditionalBreakpoints);
         Assert.True(result.Capabilities.SupportsHitConditionalBreakpoints);
         Assert.True(result.InitializedEventReceived);
@@ -61,10 +73,10 @@ public sealed class DapDebugSessionLauncherTests
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, breakpoint.Status);
 
         Assert.Equal(
-            new[] { "initialize", "setBreakpoints", "configurationDone", "launch" },
+            new[] { "initialize", "launch", "setBreakpoints", "configurationDone" },
             transport.Requests.Select(request => request.Command));
         Assert.Equal("scriptlab-test", transport.Requests[0].Arguments["adapterID"]!.GetValue<string>());
-        Assert.Equal(emit.AssemblyPath, transport.Requests[3].Arguments["program"]!.GetValue<string>());
+        Assert.Equal(emit.AssemblyPath, transport.Requests[1].Arguments["program"]!.GetValue<string>());
     }
 
     [Fact]
@@ -85,6 +97,7 @@ public sealed class DapDebugSessionLauncherTests
         {
             ["supportsBreakpointLocationsRequest"] = true
         });
+        transport.EnqueueResponse(new JsonObject());
         transport.EnqueueResponse(new JsonObject
         {
             ["breakpoints"] = new JsonArray
@@ -98,7 +111,7 @@ public sealed class DapDebugSessionLauncherTests
             }
         });
         transport.EnqueueResponse(new JsonObject());
-        transport.EnqueueResponse(new JsonObject());
+        transport.RequireConfigurationDoneBeforePendingWait = true;
         var launcher = new DapDebugSessionLauncher(new DapDebugSessionClient(transport, transport));
 
         var result = launcher.Attach(
@@ -117,18 +130,29 @@ public sealed class DapDebugSessionLauncherTests
             });
 
         Assert.NotNull(result.Runtime);
+        Assert.Equal(DapDebugSessionPhase.Attached, result.Lifecycle.Phase);
+        Assert.Equal(
+            new[]
+            {
+                DapDebugSessionPhase.Created,
+                DapDebugSessionPhase.Initialized,
+                DapDebugSessionPhase.BreakpointsConfigured,
+                DapDebugSessionPhase.ConfigurationDone,
+                DapDebugSessionPhase.Attached
+            },
+            result.Lifecycle.CompletedPhases);
         Assert.True(result.Capabilities.SupportsBreakpointLocationsRequest);
         Assert.True(result.InitializedEventReceived);
         var breakpoint = Assert.Single(result.BreakpointResults);
         Assert.Equal(ScriptBreakpointBackendStatus.Applied, breakpoint.Status);
 
         Assert.Equal(
-            new[] { "initialize", "setBreakpoints", "configurationDone", "attach" },
+            new[] { "initialize", "attach", "setBreakpoints", "configurationDone" },
             transport.Requests.Select(request => request.Command));
         Assert.Equal("scriptlab-test", transport.Requests[0].Arguments["adapterID"]!.GetValue<string>());
-        Assert.Equal(4242, transport.Requests[3].Arguments["processId"]!.GetValue<int>());
-        Assert.Equal("cppClr", transport.Requests[3].Arguments["hostKind"]!.GetValue<string>());
-        Assert.False(transport.Requests[3].Arguments["terminateOnDisconnect"]!.GetValue<bool>());
+        Assert.Equal(4242, transport.Requests[1].Arguments["processId"]!.GetValue<int>());
+        Assert.Equal("cppClr", transport.Requests[1].Arguments["hostKind"]!.GetValue<string>());
+        Assert.False(transport.Requests[1].Arguments["terminateOnDisconnect"]!.GetValue<bool>());
     }
 
     private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
@@ -167,13 +191,15 @@ public sealed class DapDebugSessionLauncherTests
         throw new FileNotFoundException($"Could not locate sample script '{fileName}'.");
     }
 
-    private sealed class FakeDapTransport : IDapRequestClient, IDapEventSource
+    private sealed class FakeDapTransport : IDapRequestClient, IDapPendingRequestClient, IDapEventSource
     {
         private readonly Queue<JsonObject> responses = new();
 
         public List<JsonObject> Events { get; } = new();
 
         public List<DapRequest> Requests { get; } = new();
+
+        public bool RequireConfigurationDoneBeforePendingWait { get; set; }
 
         public void EnqueueResponse(JsonObject response)
         {
@@ -184,6 +210,21 @@ public sealed class DapDebugSessionLauncherTests
         {
             Requests.Add(new DapRequest(command, arguments.DeepClone().AsObject()));
             return responses.Dequeue();
+        }
+
+        public DapPendingRequest SendRequestPending(string command, JsonObject arguments)
+        {
+            Requests.Add(new DapRequest(command, arguments.DeepClone().AsObject()));
+            var response = responses.Dequeue();
+            return new DapPendingRequest(() =>
+            {
+                if (RequireConfigurationDoneBeforePendingWait)
+                {
+                    Assert.Contains(Requests, request => request.Command == "configurationDone");
+                }
+
+                return response;
+            });
         }
 
         public IReadOnlyList<JsonObject> DrainEvents()

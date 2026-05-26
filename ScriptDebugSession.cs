@@ -138,7 +138,10 @@ public sealed record ScriptDebugVariable(
     int? ProbeId = null,
     string? PinId = null,
     long? Sequence = null,
-    int? HitCount = null);
+    int? HitCount = null)
+{
+    public int? VariablesReference { get; init; }
+}
 
 public sealed record ScriptFrameVariableSnapshot(
     bool Available,

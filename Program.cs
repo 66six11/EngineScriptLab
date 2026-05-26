@@ -30,7 +30,9 @@ var positionalArgs = commandArgs
 
 if (command == "server")
 {
-    var server = new ScriptLabJsonRpcServer();
+    var dapAdapterPath = GetOptionValue(commandArgs, "--dap-adapter") ??
+                         Environment.GetEnvironmentVariable(ScriptLabJsonRpcServer.DapAdapterPathEnvironmentVariable);
+    using var server = new ScriptLabJsonRpcServer(new ScriptLabServerOptions(DapAdapterPath: dapAdapterPath));
     await server.RunAsync(Console.In, Console.Out);
     return 0;
 }

@@ -875,12 +875,12 @@ public static class Transform
 - DAP 后端必须先探测 capabilities；当前能力模型读取 conditional breakpoint、hit condition、breakpointLocations 和 instruction breakpoint，相关功能只有在 adapter 支持时才启用。
 - DAP source breakpoint 管理必须按文件维护完整断点集合，增删单个断点时仍向 adapter 提交该文件的全量列表。
 - 当前实现已在 `ScriptDebugSession.ReadPausedSnapshot` 加入 `IScriptFrameVariableBackend` 接口，并通过 `DapDebugSessionClient` / `DapScriptStoppedEventResolver` / `DapScriptFrameVariableBackend` 的 fake DAP 测试验证 `DrainEvents -> stopped.threadId -> stackTrace -> scopes -> variables`。
-- 当前实验性 `DapDebugSessionRuntime` 已组合 source breakpoint apply、drained stopped event resolve 和 paused snapshot frame variables；它不是 adapter 进程 owner。
-- 当前 `DapAdapterProcess` 只负责 stdio 进程所有权；`DapDebugSessionLauncher` 用 fake transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch/attach -> runtime`。`continue` / `next` / `disconnect` / `terminate` 有最小请求封装，`terminated` / `exited` 可手动 drain；真实 .NET adapter 参数、异步事件泵、暂停态缓存和等待退出策略尚未接线。
+- 当前实验性 `DapDebugSessionRuntime` 已组合 source breakpoint apply、drained stopped event resolve、breakpoint event drain 和 paused snapshot frame variables；它不是 adapter 进程 owner。
+- 当前 `DapAdapterProcess` 只负责 stdio 进程所有权；`DapDebugSessionLauncher` 用 fake transport 验证 `initialize -> launch/attach pending request -> initialized event -> setBreakpoints -> configurationDone -> launch/attach response -> runtime`。`continue` / `next` / `disconnect` / `terminate` 有最小请求封装，`terminated` / `exited` 可 drain；`DapDebugSessionClient` 会解析 stopped / lifecycle / breakpoint event；JSON-RPC server 可通过 `SCRIPTLAB_DAP_ADAPTER` 或 `--dap-adapter=...` 配置真实 adapter 并在 attach 会话中持有 adapter 进程，attach 后启动受锁保护的后台事件泵，把 DAP events 写入带 `afterEventSequence` 的 `drainDebugEvents` 游标缓存；后台泵只做 stopped frame 解析和当前暂停态更新，客户端消费 `drainDebugEvents` 时才懒加载 paused snapshot scopes / variables；`debugStateId` 标识当前暂停态，`readVariables` 支持读取当前 scope 或 DAP `variablesReference` 子变量；debug 编译器使用 SDK reference assemblies，并保持 `#line` PDB document path 与真实 `.ash.cs` 路径一致；`DapNetcoredbgSmokeTests` 可 opt-in 验证真实 `netcoredbg` launch / breakpoint / stopped / stackTrace / scopes / variables、ScriptLab generated assembly 的 `DebugMap` source breakpoint 命中、attach 到已运行 managed host process 后命中 generated source breakpoint、server 默认 adapter 路径的 attach / drainDebugEvents / paused snapshot / readVariables、项目内 `Native/ScriptLab.EngineHost/ScriptLabEngineHost.cpp` C++ hostfxr 宿主进程的 attach stopped frame，以及 VKengine 风格 package-first 模拟宿主在直接 DAP attach 和 JSON-RPC server attach 下的 stopped frame；`Native/ScriptLab.EngineHost/scriptlab/ScriptLabBridgeContract.h` 已把 `cppClr` host kind、`scriptlab.bridge.json` 字段、bridge entry-point 签名和 host exit code 收成 native 侧契约，真实引擎可把该头文件复制到 scriptlab-dotnet-bridge package include 面，并替换 managed bridge type / prepare method / entry method；真实引擎 C++ 宿主集成和等待退出策略尚未接线。
 - synthetic probe stop 不读取 frame variables；只有非 synthetic debugger stop 才允许用 backend 填充 Arguments、Locals、This。
 - 源码断点打在 `{`、空行、注释或不可断表达式位置时，可归一化到 owning breakable site；如果无法映射，UI 显示 source-only。
 - debugger stopped event 后，DebugSession 能用当前 frame 的实际 sequence point / IL offset 定位到对应 `debugSiteId` 和蓝图节点。
-- stopped event 必须记录 `threadId` 和 `allThreadsStopped`；变量刷新只针对当前暂停状态，continue/step 后清空旧 frame/variables reference，并拒绝用旧 stopped event 再读 paused snapshot。
+- stopped event 必须记录 `threadId` 和 `allThreadsStopped`；变量刷新只针对当前暂停状态，continue/step 后清空旧 frame/variables reference，并拒绝用旧 stopped event 或旧 `debugStateId` 再读 paused snapshot / variables。
 - 当前暂停 frame 的 `Update(float delta)` 参数、当前 locals 和 `this` 字段可通过 debugger frame 读取并显示。
 - 插入的 probe 代码不会成为用户单步时默认停留的位置。
 - IDE/编辑器 Inspector 面板可显示暂停帧变量，并区分 Inspector 字段值、frame locals 和 Watch / Pin Inspect value。
@@ -967,14 +967,16 @@ packages/scripting-dotnet future
 新的下一步：
 
 1. 保持 `run-debug` 作为 headless 验证入口，继续覆盖 DebugMap、breakpoint binding、stopped event、trace/watch aggregation。
-2. 扩展 ScriptLab 本地协议：保持 `loadGraph`、`resolve*Breakpoint`、`set*Breakpoints`、`runDebug`、`getPausedSnapshot`、`getTraceSnapshot` 稳定；`attachDebugHost` 已能表达 C++ CLR host 目标，`continue` / `step` 已有 unsupported 边界，后续再补 DAP backend 和 `readVariables`。
-3. 接 DAP backend MVP：Content-Length framing、`initialize` capabilities、`setBreakpoints` 全量提交、launch managed test host 仅作测试路径、attach C++ CLR host 作为真实路径、`stopped -> stackTrace -> scopes -> variables`。
-4. 等 DAP 断点和变量读取跑通后，再选择具体 UI 宿主；Rider 插件可以作为客户端之一，但不是当前第一落点。
+2. 扩展 ScriptLab 本地协议：保持 `loadGraph`、`resolve*Breakpoint`、`set*Breakpoints`、`runDebug`、`getPausedSnapshot`、`getTraceSnapshot` 稳定；`registerDebugHost` / `getRegisteredDebugHost`、`attachDebugHost`、带 `afterEventSequence` 游标的 `drainDebugEvents` long-poll、`readVariables`、`continue` / `step` / `waitDebugHostExit` / `disconnectDebugHost` 已有 DAP backend 路径和 unsupported / stale 边界，后续再细化 frame/variable paging。
+3. 收紧 DAP backend MVP：已覆盖 Content-Length framing、`initialize` capabilities、`setBreakpoints` 全量提交、launch managed test host、attach managed host、minimal native hostfxr host、generated assembly source breakpoint hit、`stopped -> stackTrace -> scopes -> variables`、JSON-RPC 事件游标缓存、后台事件泵和只读宿主退出等待；下一步集中验证真实引擎 C++ 宿主集成。
+4. 等真实引擎宿主接入和变量读取策略跑通后，再选择具体 UI 宿主；Rider 插件可以作为客户端之一，但不是当前第一落点。
 5. 最后再补蓝图编辑和回写；不要把编辑器 UI 作为当前阻塞项。
 
 ### 本地服务协议 MVP
 
 当前已新增 `ScriptLab -- server` 形状的 line-delimited JSON-RPC 入口，未来 IDE/编辑器客户端按这个协议接，不直接读取内部 C# 类型：
+
+真实 DAP attach 可用 `SCRIPTLAB_DAP_ADAPTER=...\netcoredbg.exe` 或 `ScriptLab server --dap-adapter=...\netcoredbg.exe` 开启；未配置时 `attachDebugHost` 继续返回 `status=unsupported`，方便客户端先接协议。
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"loadGraph","params":{"scriptPath":"Samples\\PlayerMove.ash.cs"}}
@@ -982,10 +984,15 @@ packages/scripting-dotnet future
 {"jsonrpc":"2.0","id":3,"method":"runDebug","params":{"graphNodeId":"n3","entityId":1,"delta":0.016,"pressKeyW":true}}
 {"jsonrpc":"2.0","id":4,"method":"getPausedSnapshot","params":{}}
 {"jsonrpc":"2.0","id":5,"method":"getTraceSnapshot","params":{}}
-{"jsonrpc":"2.0","id":6,"method":"attachDebugHost","params":{"processId":4242,"hostKind":"cppClr","terminateOnDisconnect":false}}
-{"jsonrpc":"2.0","id":7,"method":"continue","params":{"threadId":11}}
-{"jsonrpc":"2.0","id":8,"method":"step","params":{"threadId":11,"kind":"next","granularity":"line"}}
-{"jsonrpc":"2.0","id":9,"method":"disconnectDebugHost","params":{}}
+{"jsonrpc":"2.0","id":6,"method":"registerDebugHost","params":{"processId":4242,"hostKind":"cppClr","terminateOnDisconnect":false,"bridgeManifestPath":"apps\\sample-viewer\\scriptlab.bridge.json","enginePackageRoot":"AshariaEngine"}}
+{"jsonrpc":"2.0","id":7,"method":"getRegisteredDebugHost","params":{}}
+{"jsonrpc":"2.0","id":8,"method":"attachDebugHost","params":{}}
+{"jsonrpc":"2.0","id":9,"method":"drainDebugEvents","params":{"timeoutMilliseconds":1000,"afterEventSequence":0}}
+{"jsonrpc":"2.0","id":10,"method":"readVariables","params":{"debugStateId":1,"scopeKind":"locals"}}
+{"jsonrpc":"2.0","id":11,"method":"continue","params":{"threadId":11}}
+{"jsonrpc":"2.0","id":12,"method":"step","params":{"threadId":11,"kind":"next","granularity":"line"}}
+{"jsonrpc":"2.0","id":13,"method":"waitDebugHostExit","params":{"timeoutMilliseconds":5000}}
+{"jsonrpc":"2.0","id":14,"method":"disconnectDebugHost","params":{}}
 ```
 
 约束：
@@ -994,7 +1001,11 @@ packages/scripting-dotnet future
 - `loadGraph` 会生成 `BlueprintGraph + ScriptDebugMap` 并建立当前服务状态。
 - `setBlueprintBreakpoints` 只接受当前图节点 ID，内部由 `ScriptDebugSession` 映射到 `debugSiteId` 和 source/PDB breakpoint。
 - `runDebug` 当前仍使用 synthetic probe backend；这是给客户端调通图节点选择、停止点、Inspector 和 Trace 的过渡后端。
-- `attachDebugHost` 当前记录 C++ CLR host attach 目标并返回 `status=unsupported` / `backend=dap`；响应里的 `attachTarget` 包含 process id、detach 策略、generated assembly/PDB/debugMap 路径、assembly MVID 和 PDB id，不包含 C++ 裸指针或 native frame 信息。
-- `continue` / `step` 当前在 probe backend 下返回 `status=unsupported`，并清空 cached paused snapshot；接入 DAP 后保持方法名，改由真实 debugger thread 执行。
+- `registerDebugHost` 只登记外部 C++ CLR host 的 process id、detach 策略、bridge manifest 路径和引擎 package root；不启动 native 进程、不连接 adapter。`getRegisteredDebugHost` 返回当前登记项，方便 IDE 或工具链确认要 attach 的宿主。
+- `attachDebugHost` 当前记录 C++ CLR host attach 目标；没有 adapter path 时返回 `status=unsupported` / `backend=dap`，有 adapter path 时启动真实 DAP attach。它可直接接收 process id，也可复用 `registerDebugHost` 的登记信息；响应里的 `attachTarget` 包含 process id、可选 process start time、detach 策略、generated assembly/PDB/debugMap 路径、assembly MVID、PDB id、可选 bridge manifest 路径和引擎 package root，不包含 C++ 裸指针或 native frame 信息。
+- `drainDebugEvents` 读取 JSON-RPC server 后台事件泵写入的 stopped / lifecycle / breakpoint event 缓存；后台泵不会提前读取 frame scopes / variables，真实 stopped event 在 `drainDebugEvents` 返回给客户端时才会懒加载 paused snapshot，并在当前暂停态上返回 `debugStateId`。可传 `timeoutMilliseconds` 做 long-poll，有事件立即返回，超时返回空事件集合；返回值包含 `eventSequence`、`nextEventSequence`、`earliestEventSequence`，客户端可用 `afterEventSequence` 重放最近 64 批事件或等待更新。
+- `readVariables` 可用 `debugStateId + scopeKind` 读取当前 paused snapshot scope；DAP attach 暂停态还可用 `debugStateId + variablesReference` 展开子变量。`continue` / `step` / lifecycle 失效后，旧 ID 返回 `status=stale`。
+- `continue` / `step` 在 probe backend 下返回 `status=unsupported`，在已连接 DAP runtime 下改由真实 debugger thread 执行。
+- `waitDebugHostExit` 只观察当前 attach target 的 process id，不拥有、不终止宿主；attach/register 能读取真实进程时会记录 `processStartTimeUtc` 并在等待时校验，降低 PID 复用误判；如果 pid 已从系统进程表消失，也返回 `status=exited`，exit code 尽量来自 DAP `exited` lifecycle event。
 - `disconnectDebugHost` 默认使用 attach target 的 `terminateOnDisconnect=false`，即 detach 而不是杀死 C++ CLR host；只有显式传 `terminateDebuggee=true` 才允许终止 debuggee。
-- DAP 后端接入后，协议方法名尽量不变，只替换 server 内部 backend；混合宿主模式下关闭会话默认 detach，不默认 terminate native engine host。
+- 混合宿主模式下关闭会话默认 detach，不默认 terminate native engine host。

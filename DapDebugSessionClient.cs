@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 
 namespace ScriptLab;
@@ -7,9 +8,29 @@ public interface IDapRequestClient
     JsonObject SendRequest(string command, JsonObject arguments);
 }
 
+public interface IDapPendingRequestClient
+{
+    DapPendingRequest SendRequestPending(string command, JsonObject arguments);
+}
+
 public interface IDapEventSource
 {
     IReadOnlyList<JsonObject> DrainEvents();
+}
+
+public sealed class DapPendingRequest
+{
+    private readonly Lazy<JsonObject> response;
+
+    public DapPendingRequest(Func<JsonObject> wait)
+    {
+        response = new Lazy<JsonObject>(wait);
+    }
+
+    public JsonObject Wait()
+    {
+        return response.Value;
+    }
 }
 
 public sealed record DapSourceBreakpointRequest(
@@ -64,10 +85,30 @@ public sealed record DapLifecycleEvent(
     int? ExitCode,
     bool Restart);
 
+public sealed record DapBreakpointEvent(
+    string Reason,
+    bool Verified,
+    string? Message,
+    int? Line,
+    int? Column,
+    string? SourcePath);
+
+public sealed record DapDebugEvent(
+    DapStoppedEvent? StoppedEvent,
+    DapLifecycleEvent? LifecycleEvent,
+    DapBreakpointEvent? BreakpointEvent);
+
+public sealed record DapDebugEventDrain(
+    IReadOnlyList<DapDebugEvent> Events,
+    IReadOnlyList<DapStoppedEvent> StoppedEvents,
+    IReadOnlyList<DapLifecycleEvent> LifecycleEvents,
+    IReadOnlyList<DapBreakpointEvent> BreakpointEvents);
+
 public sealed class DapDebugSessionClient
 {
     private readonly IDapRequestClient client;
     private readonly IDapEventSource? eventSource;
+    private readonly Queue<JsonObject> bufferedEvents = new();
 
     public DapDebugSessionClient(IDapRequestClient client)
         : this(client, client as IDapEventSource)
@@ -120,13 +161,29 @@ public sealed class DapDebugSessionClient
         var responseBody = client.SendRequest(
             "initialize",
             arguments?.DeepClone().AsObject() ?? new JsonObject());
-        var initializedEventReceived = DrainRawEvents()
-            .Any(message =>
-                string.Equals(GetString(message, "type"), "event", StringComparison.Ordinal) &&
-                string.Equals(GetString(message, "event"), "initialized", StringComparison.Ordinal));
+        var initializedEventReceived = DrainInitializedEvent();
         return new DapInitializedHandshake(
             DapBreakpointBackendCapabilities.FromInitializeResponseBody(responseBody),
             initializedEventReceived);
+    }
+
+    public bool WaitForInitializedEvent(TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            if (DrainInitializedEvent())
+            {
+                return true;
+            }
+
+            if (stopwatch.Elapsed >= timeout)
+            {
+                return false;
+            }
+
+            Thread.Sleep(TimeSpan.FromMilliseconds(10));
+        }
     }
 
     public void ConfigurationDone()
@@ -136,12 +193,22 @@ public sealed class DapDebugSessionClient
 
     public void Launch(JsonObject arguments)
     {
-        client.SendRequest("launch", arguments.DeepClone().AsObject());
+        BeginLaunch(arguments).Wait();
+    }
+
+    public DapPendingRequest BeginLaunch(JsonObject arguments)
+    {
+        return SendRequestPending("launch", arguments.DeepClone().AsObject());
     }
 
     public void Attach(JsonObject arguments)
     {
-        client.SendRequest("attach", arguments.DeepClone().AsObject());
+        BeginAttach(arguments).Wait();
+    }
+
+    public DapPendingRequest BeginAttach(JsonObject arguments)
+    {
+        return SendRequestPending("attach", arguments.DeepClone().AsObject());
     }
 
     public DapContinueResult Continue(int threadId)
@@ -309,27 +376,132 @@ public sealed class DapDebugSessionClient
         return false;
     }
 
+    public static bool TryParseBreakpointEvent(JsonObject message, out DapBreakpointEvent breakpointEvent)
+    {
+        breakpointEvent = null!;
+
+        if (!string.Equals(GetString(message, "type"), "event", StringComparison.Ordinal) ||
+            !string.Equals(GetString(message, "event"), "breakpoint", StringComparison.Ordinal) ||
+            !message.TryGetPropertyValue("body", out var bodyNode) ||
+            bodyNode is not JsonObject body ||
+            !body.TryGetPropertyValue("breakpoint", out var breakpointNode) ||
+            breakpointNode is not JsonObject breakpoint)
+        {
+            return false;
+        }
+
+        breakpointEvent = new DapBreakpointEvent(
+            GetString(body, "reason") ?? string.Empty,
+            GetBoolean(breakpoint, "verified"),
+            GetString(breakpoint, "message"),
+            GetInt32(breakpoint, "line"),
+            GetInt32(breakpoint, "column"),
+            GetSourcePath(breakpoint));
+        return true;
+    }
+
     public IReadOnlyList<DapStoppedEvent> DrainStoppedEvents()
     {
-        return DrainRawEvents()
-            .Select(message => TryParseStoppedEvent(message, out var stoppedEvent) ? stoppedEvent : null)
-            .Where(stoppedEvent => stoppedEvent is not null)
-            .Cast<DapStoppedEvent>()
-            .ToArray();
+        return DrainDebugEvents().StoppedEvents;
     }
 
     public IReadOnlyList<DapLifecycleEvent> DrainLifecycleEvents()
     {
-        return DrainRawEvents()
-            .Select(message => TryParseLifecycleEvent(message, out var lifecycleEvent) ? lifecycleEvent : null)
-            .Where(lifecycleEvent => lifecycleEvent is not null)
-            .Cast<DapLifecycleEvent>()
+        return DrainDebugEvents().LifecycleEvents;
+    }
+
+    public DapDebugEventDrain DrainDebugEvents()
+    {
+        var events = DrainRawEvents()
+            .Select(ParseDebugEvent)
+            .Where(debugEvent => debugEvent is not null)
+            .Cast<DapDebugEvent>()
             .ToArray();
+
+        return new DapDebugEventDrain(
+            events,
+            events
+                .Where(debugEvent => debugEvent.StoppedEvent is not null)
+                .Select(debugEvent => debugEvent.StoppedEvent!)
+                .ToArray(),
+            events
+                .Where(debugEvent => debugEvent.LifecycleEvent is not null)
+                .Select(debugEvent => debugEvent.LifecycleEvent!)
+                .ToArray(),
+            events
+                .Where(debugEvent => debugEvent.BreakpointEvent is not null)
+                .Select(debugEvent => debugEvent.BreakpointEvent!)
+                .ToArray());
     }
 
     private IReadOnlyList<JsonObject> DrainRawEvents()
     {
-        return eventSource?.DrainEvents() ?? Array.Empty<JsonObject>();
+        var events = new List<JsonObject>();
+        while (bufferedEvents.Count > 0)
+        {
+            events.Add(bufferedEvents.Dequeue());
+        }
+
+        if (eventSource is not null)
+        {
+            events.AddRange(eventSource.DrainEvents());
+        }
+
+        return events;
+    }
+
+    private bool DrainInitializedEvent()
+    {
+        var initializedEventReceived = false;
+        foreach (var message in DrainRawEvents())
+        {
+            if (IsInitializedEvent(message))
+            {
+                initializedEventReceived = true;
+                continue;
+            }
+
+            bufferedEvents.Enqueue(message);
+        }
+
+        return initializedEventReceived;
+    }
+
+    private DapPendingRequest SendRequestPending(string command, JsonObject arguments)
+    {
+        if (client is IDapPendingRequestClient pendingClient)
+        {
+            return pendingClient.SendRequestPending(command, arguments);
+        }
+
+        var requestTask = Task.Run(() => client.SendRequest(command, arguments));
+        return new DapPendingRequest(() => requestTask.GetAwaiter().GetResult());
+    }
+
+    private static DapDebugEvent? ParseDebugEvent(JsonObject message)
+    {
+        if (TryParseStoppedEvent(message, out var stoppedEvent))
+        {
+            return new DapDebugEvent(stoppedEvent, LifecycleEvent: null, BreakpointEvent: null);
+        }
+
+        if (TryParseLifecycleEvent(message, out var lifecycleEvent))
+        {
+            return new DapDebugEvent(StoppedEvent: null, lifecycleEvent, BreakpointEvent: null);
+        }
+
+        if (TryParseBreakpointEvent(message, out var breakpointEvent))
+        {
+            return new DapDebugEvent(StoppedEvent: null, LifecycleEvent: null, breakpointEvent);
+        }
+
+        return null;
+    }
+
+    private static bool IsInitializedEvent(JsonObject message)
+    {
+        return string.Equals(GetString(message, "type"), "event", StringComparison.Ordinal) &&
+               string.Equals(GetString(message, "event"), "initialized", StringComparison.Ordinal);
     }
 
     private static JsonObject CreateDapSourceBreakpoint(DapSourceBreakpointRequest breakpoint)

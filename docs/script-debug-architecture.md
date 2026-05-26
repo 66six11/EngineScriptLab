@@ -439,14 +439,21 @@ Watch 是用户观测概念。
 - `ScriptDebugSession.ReadPausedSnapshot` 已预留 `IScriptFrameVariableBackend`，非 synthetic debugger stop 可通过该接口填充 Arguments、Locals、This。
 - 实验层已有 `DapDebugSessionClient` 和 `DapScriptFrameVariableBackend`，用 fake DAP 响应验证 `threadId -> stackTrace -> scopes -> variables -> paused snapshot`。
 - 实验层已有 `DapScriptStoppedEventResolver`，用 fake DAP `stopped` event 和 `stackTrace` 验证 `stopped.threadId -> ScriptStoppedEvent.ThreadId -> DebugMap source binding`。
-- `DapProtocolClient` 暴露 `IDapEventSource.DrainEvents()`，`DapDebugSessionClient.DrainStoppedEvents()` 会过滤 stopped event，再由 resolver 转成 `ScriptStoppedEvent`。
-- `DapDebugSessionRuntime` 是当前实验性组合对象，只组合 source breakpoint apply、drained stopped event resolve 和 paused snapshot frame variables。
-- `DapAdapterProcess` 是当前最小 adapter process owner，只负责启动 stdio 进程并暴露 `DapProtocolClient`。
-- `DapDebugSessionLauncher` 已用 fake DAP transport 验证 `initialize -> setBreakpoints -> configurationDone -> launch/attach -> DapDebugSessionRuntime` 的实验握手。
+- `DapProtocolClient` 内部已有后台 reader / dispatcher：response 按 `request_seq` 归档给同步 `SendRequest`，event 进入 `IDapEventSource.DrainEvents()` 队列；adapter 主动发送 event 时不再依赖下一次 request 顺带读取。
+- `DapDebugSessionClient.DrainDebugEvents()` 会一次消费 raw event queue，并同时解析 stopped / lifecycle / breakpoint event；旧的 `DrainStoppedEvents()` 和 `DrainLifecycleEvents()` 只是兼容包装。
+- `DapDebugSessionRuntime` 是当前实验性组合对象，组合 source breakpoint apply、drained stopped event resolve、breakpoint event drain 和 paused snapshot frame variables。
+- `DapAdapterProcess` 是当前最小 adapter process owner，只负责启动 stdio 进程并暴露 `DapProtocolClient`；JSON-RPC server 在配置了 adapter path 的 attach 会话里持有并释放它。
+- `DapDebugSessionLauncher` 已用 fake DAP transport 验证 `initialize -> launch/attach pending request -> initialized event -> setBreakpoints -> configurationDone -> launch/attach response -> DapDebugSessionRuntime` 的实验握手，并返回轻量 `DapDebugSessionLifecycle`，记录 created / initialized / breakpointsConfigured / configurationDone / launched 或 attached。
+- debug 编译器优先使用当前 SDK 的 reference assemblies 编译 generated script assembly，避免把 `System.Private.CoreLib` 这类实现程序集引用泄漏给外部 host；`#line` 映射路径只转义引号，不转义 Windows 反斜杠，确保 Portable PDB document 路径能被真实 debugger 匹配。
+- `DapNetcoredbgSmokeTests` 提供 opt-in 真实 adapter smoke；设置 `SCRIPTLAB_DAP_ADAPTER=...\netcoredbg.exe` 后，会临时生成 console debuggee，验证 `netcoredbg --interpreter=vscode` 的 launch / breakpoint / stopped / stackTrace / scopes / variables；同时会用 SDK-style host 直接引用 ScriptLab generated assembly，验证 `DebugMap` 源码位置能通过真实 DAP source breakpoint 命中 `.ash.cs` stopped frame；也验证 attach 到已运行 managed host process 后命中同一 generated source breakpoint，并覆盖 JSON-RPC server 配置 adapter path 后的 attach / drainDebugEvents / paused snapshot / readVariables 路径。Windows 上若可用 clang-cl 和 hostfxr，还会编译 `Native/ScriptLab.EngineHost/ScriptLabEngineHost.cpp`，通过真实 C++ hostfxr 进程初始化 CLR 后验证同一 attach stopped frame；另有 package-first engine simulation smoke，按 VKengine 风格生成 `engine/core`、`engine/platform`、`packages/scene-core`、`packages/script-runtime`、`packages/scriptlab-dotnet-bridge`、`apps/sample-viewer` manifests，再由 `apps/sample-viewer` native host attach 命中 generated script breakpoint。package-first 模拟宿主同时覆盖直接 DAP attach 和 JSON-RPC server attach 两条路径。
 - `DapDebugSessionClient` 已有 `disconnect` 和 `terminate` 请求封装，`DapDebugSessionRuntime.Disconnect()` 会发送最小 disconnect 请求。
-- `DapDebugSessionClient` 已有 `continue` 和 `next` 请求封装，`DapDebugSessionRuntime` 只透传执行控制请求；继续运行或单步成功后会让旧 stopped event 失效，新的 stopped event 仍通过 drain/resolver 进入。
-- `DapDebugSessionClient.DrainLifecycleEvents()` 已能手动解析 `terminated` / `exited` 事件，`DapDebugSessionRuntime.DrainLifecycleEvents()` 只透传该结果。
-- 当前还没有接真实 .NET debug adapter、C++ / 托管 C# 混合宿主 attach 模式、异步事件泵、暂停态缓存或进程等待策略；DAP launch/shutdown/execution control/stopped/frame variables 仍是骨架和单元层闭环。
+- `DapDebugSessionClient` 已有 `continue` 和 `next` 请求封装，`DapDebugSessionRuntime` 会在执行控制成功后进入 `running` phase，并让旧 stopped event 失效；新的 stopped event 仍通过 drain/resolver 进入。
+- `DapDebugSessionClient.DrainLifecycleEvents()` 已能解析 `terminated` / `exited` 事件；`DapDebugSessionRuntime.DrainDebugEvents()` 按同一批 event 的原始顺序更新当前暂停态，`terminated` / `exited` 会让前面的 stopped event 失效。
+- `DapDebugSessionRuntime` 维护当前 runtime lifecycle：drained stopped event 进入 `stopped`，`terminated` / `exited` 进入对应 phase，`disconnect` 进入 `disconnected`；`continue` / `step` / `drainDebugEvents` / `disconnectDebugHost` 的 JSON-RPC result 会暴露该 lifecycle，`drainDebugEvents` 也会透出 DAP breakpoint events。
+- JSON-RPC server 在 DAP attach 成功后启动受锁保护的后台事件泵，持续 drain adapter event queue 并把 stopped / lifecycle / breakpoint event 写入会话游标缓存；对 stopped event，后台泵只完成 `stopped -> stackTrace -> DebugMap` 解析和 `debugStateId` 更新，不提前读取 paused snapshot 的 scopes / variables；`drainDebugEvents` 从缓存返回给客户端时才在当前暂停态上懒加载 `pausedSnapshot`。`drainDebugEvents` 支持 `timeoutMilliseconds` 和 `afterEventSequence`，可作为带游标的客户端 long-poll：有缓存事件时立即返回，超时则返回空事件集合；server 为最近事件批次返回 `eventSequence` / `nextEventSequence` / `earliestEventSequence` 并缓存最近 64 批，方便多个 IDE 面板按游标重放最近事件；无 DAP runtime 时仍立即返回，不阻塞 probe backend。
+- JSON-RPC server 为当前暂停态维护 `debugStateId`；`runDebug` / `drainDebugEvents` 返回该 ID，`continue` / `step` / `disconnectDebugHost` / `terminated` / `exited` 会让旧 ID 失效。`readVariables` 可用 `debugStateId + scopeKind` 读取当前 paused snapshot scope，也可在 DAP attach 暂停态下用 `debugStateId + variablesReference` 展开 DAP 子变量；旧 ID 返回 `status=stale`。
+- `waitDebugHostExit` 只按当前 attach target 的 process id 观察宿主退出，不拥有、不终止进程；attach/register 能读取真实进程时会记录 `processStartTimeUtc`，等待时用它降低 PID 复用误判；如果 pid 已从系统进程表消失，也返回 `status=exited`，并尽量从已缓存的 DAP `exited` lifecycle event 提供 exit code。
+- 当前已能通过 `SCRIPTLAB_DAP_ADAPTER` 或 server `--dap-adapter=...` 配置真实 .NET debug adapter；最小 native hostfxr 宿主和 VKengine 风格 package-first 模拟宿主的 attach paused frame 已验证。`Native/ScriptLab.EngineHost/scriptlab/ScriptLabBridgeContract.h` 固化 native 侧最小契约：`cppClr` host kind、`scriptlab.bridge.json` 字段名、bridge component entry-point 签名和 host exit code；`Native/ScriptLab.EngineHost/ScriptLabEngineHost.cpp` 支持该 manifest 启动，manifest 提供 `hostfxrPath`、`runtimeConfigPath`、`assemblyPath`、`typeName`、`prepareMethod`、`entryMethod`；`registerDebugHost` 可先登记外部宿主 pid、bridge manifest 和 package root，`attachDebugHost` 可复用登记信息并把它们作为 ScriptLab 诊断元数据随 `attachTarget` 返回；attach 后后台事件泵会持续填充 `drainDebugEvents` 游标缓存；`continue -> waitDebugHostExit -> disconnectDebugHost` 路径已用于真实 JSON-RPC smoke。旧的长命令行参数仍可用于调试。未闭环的是接入真实引擎 C++ 宿主。
 - synthetic probe stop 永远不调用 frame variable backend；它只能显示 Inspector 和 Watch / Pin Inspect。
 - 未接入 frame variable backend 的真实 debugger stop 会把 Arguments、Locals、This 标记为 unavailable，而不是用 Inspector 或 Watch 值伪装。
 
@@ -520,10 +527,14 @@ Native engine host process
 边界规则：
 
 - CLR hosting owner 是 C++ engine runtime/platform 层；ScriptLab 后端只消费宿主暴露的进程、assembly、PDB、entity/handle 和调试入口信息。
-- 本地 JSON-RPC 服务和 IDE 客户端不直接拥有引擎进程；它们只请求 attachDebugHost / continue / step / disconnectDebugHost / paused snapshot。
-- `attachDebugHost` 的调试目标只包含 process id、detach 策略、generated assembly/PDB/debugMap 路径、assembly MVID 和 PDB id；这些是后续 DAP attach 参数包的输入。
+- 本地 JSON-RPC 服务和 IDE 客户端不直接拥有引擎进程；它们只请求 registerDebugHost / getRegisteredDebugHost / attachDebugHost / drainDebugEvents / readVariables / continue / step / waitDebugHostExit / disconnectDebugHost / paused snapshot。
+- `registerDebugHost` 只记录外部宿主 pid、detach 策略、bridge manifest 路径和引擎 package root；不启动进程、不连接 adapter。
+- `attachDebugHost` 的调试目标只包含 process id、可选 process start time、detach 策略、generated assembly/PDB/debugMap 路径、assembly MVID、PDB id、bridge manifest 路径和引擎 package root；server 对通用 .NET DAP adapter 只发送 adapter 兼容的 `processId`，其余字段作为 ScriptLab 绑定和校验元数据保留。
+- `drainDebugEvents` 的事件游标属于 ScriptLab server 会话状态；它不是 DAP protocol sequence number，也不是持久化日志。客户端如果发现 `afterEventSequence < earliestEventSequence - 1`，需要重新同步当前 paused snapshot / breakpoints。
+- 后台事件泵和 JSON-RPC 控制请求共享同一把 server 锁访问 `DapDebugSessionRuntime`，避免 `continue` / `step` / `readVariables` 与 stopped event resolver 同时向同一个 adapter 发送请求；后台泵只缓存事件和当前暂停态，frame scopes / variables 由客户端消费 `drainDebugEvents` 时懒加载。
 - `DapDebugSessionRuntime` 不假设 debuggee 是它启动的子进程；默认目标应是 attach 到已经初始化 CLR 的 C++ host process。
 - `DapAdapterProcess` 只拥有 adapter 进程，不拥有 native engine host；disconnect/terminate 必须区分“断开调试器”和“终止 debuggee”。
+- `waitDebugHostExit` 是只读观察点，用于把 `continue` 后宿主自然退出和后续 `disconnectDebugHost` 的时序显式化；它会校验可用的 `processStartTimeUtc`，但不能替代 engine 侧进程所有权。
 - `disconnectDebugHost` 默认 detach；只有显式 `terminateDebuggee=true` 或 attach 策略明确允许时才终止 debuggee。
 - `DebugMap` 只描述托管脚本 assembly、PDB、source span、sequence point、IL offset 和 blueprint mapping；不能保存 C++ 裸指针、native object address 或 frame pointer。
 - Inspector 读取引擎对象状态可以来自 C++ host 暴露的托管 binding / handle / entity id，但 Arguments、Locals、This 只能来自当前托管暂停 frame。
@@ -549,7 +560,7 @@ Attach C++ CLR host:
 - 能在已加载 generated script assembly 的 host 中命中托管 source/PDB breakpoint。
 - stopped event 能定位到托管 script frame，而不是停在 native engine loop。
 - stack/scopes/variables 能读取脚本参数、locals、`this`。
-- continue/step 后旧 frameId / variablesReference / stopped event 全部失效。
+- continue/step 后旧 frameId / variablesReference / stopped event / debugStateId 全部失效。
 - detach 不杀死引擎进程，terminate 只能在显式策略允许时发生。
 
 ## 16. DAP capability 的意义
@@ -604,8 +615,8 @@ variables
 ```
 
 `DapScriptBreakpointBackend`、`DapScriptStoppedEventResolver` 和 `DapScriptFrameVariableBackend` 都通过这层访问 DAP，避免 breakpoint、stopped event 和 frame variable 路径各自解析 JSON。
-`DapDebugSessionRuntime` 只负责把这三个实验部件装配在一起；它不拥有 adapter 进程，也不启动后台事件泵。
-`DapDebugSessionLauncher` 只负责一次性握手和 runtime 创建；真实 adapter 参数、进程生命周期策略、事件泵和等待退出策略仍需后续设计。
+`DapDebugSessionRuntime` 只负责把这三个实验部件装配在一起；它不拥有 adapter 进程，后台事件泵由 JSON-RPC server 在 attach 会话内启动和停止。
+`DapDebugSessionLauncher` 只负责一次性握手和 runtime 创建；`launch` / `attach` 先发送 pending request，再在 `configurationDone` 后等待响应，避免真实 adapter 在 launch/attach 响应前等待断点配置时死锁。真实 adapter 参数和进程等待策略仍需后续设计。
 
 如果不支持条件断点：
 

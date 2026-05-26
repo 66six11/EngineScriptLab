@@ -53,6 +53,13 @@ public sealed class DapScriptStoppedEventResolver
             .ToArray();
     }
 
+    public IReadOnlyList<ScriptStoppedEvent> ResolveStoppedEvents(IReadOnlyList<DapStoppedEvent> stoppedEvents)
+    {
+        return stoppedEvents
+            .Select(Resolve)
+            .ToArray();
+    }
+
     private static ScriptStoppedEvent CreateUnresolved(DapStoppedEvent stoppedEvent, string message)
     {
         return new ScriptStoppedEvent(
