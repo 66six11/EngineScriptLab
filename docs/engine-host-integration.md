@@ -107,6 +107,21 @@ For build scripts or local preflight checks that do not need a long-running serv
 
 Add `--json` to emit the raw validation result. A non-zero exit code means the bridge manifest failed the same checks used by `validateDebugHost`, `registerDebugHost`, and `attachDebugHost`.
 
+For the full interactive attach flow, prefer the runner script. It builds ScriptLab, starts the JSON-RPC server from the built assembly, loads the script, sets the source breakpoint, validates the manifest, asks for the ready host process id, attaches, optionally writes the go file, drains the stopped event, reads variables, and disconnects:
+
+```powershell
+scripts\Invoke-ScriptLabEngineHostDebug.ps1 `
+  -BridgeManifestPath D:\Game\apps\sample-viewer\scriptlab.bridge.json `
+  -EnginePackageRoot D:\Game `
+  -ScriptPath D:\Game\Scripts\PlayerMove.ash.cs `
+  -OutputDirectory D:\Game\packages\script-runtime\generated `
+  -BreakpointLine 14 `
+  -BreakpointColumn 13 `
+  -GoFilePath D:\Game\apps\sample-viewer\scriptlab.go
+```
+
+If the engine uses a different ready/go mechanism, omit `-GoFilePath`; the script pauses after attach and asks you to release the host manually.
+
 ## JSON-RPC Sequence
 
 Use `loadGraph` to compile the current script into debug emit files:
