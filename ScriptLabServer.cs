@@ -75,6 +75,13 @@ public sealed record ScriptLabRegisterDebugHostParams(
     string? BridgeManifestPath = null,
     string? EnginePackageRoot = null);
 
+public sealed record ScriptLabValidateDebugHostParams(
+    string? ScriptPath = null,
+    string? OutputDirectory = null,
+    string? HostKind = "cppClr",
+    string? BridgeManifestPath = null,
+    string? EnginePackageRoot = null);
+
 public sealed record ScriptLabAttachDebugHostParams(
     string? ScriptPath = null,
     string? OutputDirectory = null,
@@ -152,6 +159,19 @@ public sealed record ScriptLabDebugHostRegistrationResult(
     string Backend,
     string Reason,
     ScriptLabRegisteredDebugHost? Host);
+
+public sealed record ScriptLabDebugHostValidationResult(
+    string Status,
+    string Backend,
+    string HostKind,
+    string Reason,
+    string BridgeManifestPath,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? EnginePackageRoot,
+    string GeneratedAssemblyPath,
+    string PdbPath,
+    string DebugMapPath,
+    string SourceDocumentPath);
 
 public sealed record ScriptLabRegisteredDebugHost(
     string HostKind,
@@ -242,6 +262,28 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
 {
     public const string DapAdapterPathEnvironmentVariable = "SCRIPTLAB_DAP_ADAPTER";
     private static readonly IReadOnlyList<string> DefaultDapAdapterArguments = new[] { "--interpreter=vscode" };
+    private static readonly IReadOnlyList<string> RequiredBridgeManifestFields = new[]
+    {
+        "hostfxrPath",
+        "runtimeConfigPath",
+        "assemblyPath",
+        "typeName",
+        "prepareMethod",
+        "entryMethod"
+    };
+    private static readonly IReadOnlyList<string> RequiredBridgeManifestFileFields = new[]
+    {
+        "hostfxrPath",
+        "runtimeConfigPath",
+        "assemblyPath"
+    };
+    private static readonly IReadOnlyList<string> OptionalBridgeManifestFileFields = new[]
+    {
+        "generatedAssemblyPath",
+        "pdbPath",
+        "debugMapPath",
+        "sourceDocumentPath"
+    };
     private const int MaxCachedDebugEventBatches = 64;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -361,6 +403,8 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
             "getBreakpoints" => GetBreakpoints(
                 ReadParams(parameters, new ScriptLabGetBreakpointsParams())),
             "runDebug" => RunDebug(ReadParams(parameters, new ScriptLabRunDebugParams())),
+            "validateDebugHost" => ValidateDebugHost(
+                ReadParams(parameters, new ScriptLabValidateDebugHostParams())),
             "registerDebugHost" => RegisterDebugHost(
                 ReadParams(parameters, new ScriptLabRegisterDebugHostParams())),
             "getRegisteredDebugHost" => GetRegisteredDebugHost(),
@@ -549,7 +593,7 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
         ScriptLabRegisterDebugHostParams parameters)
     {
         var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
-        var host = CreateRegisteredDebugHost(parameters);
+        var host = CreateRegisteredDebugHost(current.Emit, parameters);
         current.RegisteredHost = host;
 
         return new ScriptLabDebugHostRegistrationResult(
@@ -557,6 +601,28 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
             "dap",
             "C++ CLR host is registered for a later DAP attach.",
             host);
+    }
+
+    private ScriptLabDebugHostValidationResult ValidateDebugHost(
+        ScriptLabValidateDebugHostParams parameters)
+    {
+        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var hostKind = ResolveCppClrHostKind(parameters.HostKind);
+        var bridgeManifestPath = ResolveBridgeManifestPath(parameters.BridgeManifestPath, current.Emit)
+                                 ?? throw new InvalidOperationException(
+                                     "bridgeManifestPath is required to validate a C++ CLR debug host.");
+
+        return new ScriptLabDebugHostValidationResult(
+            "valid",
+            "dap",
+            hostKind,
+            "Bridge manifest is valid for the current ScriptLab debug emit.",
+            bridgeManifestPath,
+            NormalizeOptionalPath(parameters.EnginePackageRoot),
+            current.Emit.AssemblyPath,
+            current.Emit.PdbPath,
+            current.Emit.DebugMapPath,
+            current.Emit.DebugMap.SourceDocumentPath);
     }
 
     private ScriptLabDebugHostRegistrationResult GetRegisteredDebugHost()
@@ -577,6 +643,7 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
         var attachTarget = CreateDapAttachTarget(current, parameters);
         var attachArguments = CreateDapAttachArguments(attachTarget);
         ClearPausedState(current);
+        ClearAttachedHostState(current);
         current.AttachedHost = attachTarget;
         current.PendingAttachArguments = attachArguments;
         var attachResult = TryAttachDapRuntime(current, attachTarget, attachArguments);
@@ -1416,7 +1483,9 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
             {
                 lock (syncRoot)
                 {
-                    if (state != current || current.DapRuntime is null)
+                    if (cancellationToken.IsCancellationRequested ||
+                        state != current ||
+                        current.DapRuntime is null)
                     {
                         return;
                     }
@@ -1460,7 +1529,17 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
         current.PendingAttachArguments = null;
         current.DapRuntime = null;
         current.DapAdapterProcess = null;
+        ClearDebugEventState(current);
         Monitor.PulseAll(syncRoot);
+    }
+
+    private static void ClearDebugEventState(ServerState current)
+    {
+        current.DebugEventBatches.Clear();
+        current.NextDebugEventSequence = 1;
+        current.DefaultDrainAfterEventSequence = 0;
+        current.PreferredDebugEventEntityId = 1;
+        current.DebugEventPumpException = null;
     }
 
     private static ScriptLabDapAttachTarget CreateDapAttachTarget(
@@ -1478,6 +1557,13 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
                 "processId must be a positive C++ CLR host process id, or registerDebugHost must be called first.");
         }
 
+        var bridgeManifestPath = ResolveBridgeManifestPath(parameters.BridgeManifestPath) ??
+                                 registeredHost?.BridgeManifestPath;
+        if (bridgeManifestPath is not null)
+        {
+            ValidateBridgeManifest(bridgeManifestPath, current.Emit);
+        }
+
         return new ScriptLabDapAttachTarget(
             hostKind,
             processId,
@@ -1488,11 +1574,12 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
             current.Emit.DebugMap.AssemblyMvid,
             current.Emit.DebugMap.PdbId,
             registeredHost?.ProcessStartTimeUtc ?? TryGetProcessStartTimeUtc(processId),
-            NormalizeOptionalPath(parameters.BridgeManifestPath) ?? registeredHost?.BridgeManifestPath,
+            bridgeManifestPath,
             NormalizeOptionalPath(parameters.EnginePackageRoot) ?? registeredHost?.EnginePackageRoot);
     }
 
     private static ScriptLabRegisteredDebugHost CreateRegisteredDebugHost(
+        DebugScriptEmitResult emit,
         ScriptLabRegisterDebugHostParams parameters)
     {
         if (parameters.ProcessId <= 0)
@@ -1505,7 +1592,7 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
             parameters.ProcessId,
             parameters.TerminateOnDisconnect,
             TryGetProcessStartTimeUtc(parameters.ProcessId),
-            NormalizeOptionalPath(parameters.BridgeManifestPath),
+            ResolveBridgeManifestPath(parameters.BridgeManifestPath, emit),
             NormalizeOptionalPath(parameters.EnginePackageRoot));
     }
 
@@ -1568,6 +1655,172 @@ public sealed class ScriptLabJsonRpcServer : IDisposable
     private static string? NormalizeOptionalPath(string? path)
     {
         return string.IsNullOrWhiteSpace(path) ? null : path;
+    }
+
+    private static string? ResolveBridgeManifestPath(string? path, DebugScriptEmitResult? emit = null)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        ValidateBridgeManifest(fullPath, emit);
+        return fullPath;
+    }
+
+    private static void ValidateBridgeManifest(string manifestPath, DebugScriptEmitResult? emit = null)
+    {
+        if (!File.Exists(manifestPath))
+        {
+            throw new InvalidOperationException($"Bridge manifest file does not exist: {manifestPath}");
+        }
+
+        JsonObject manifest;
+        try
+        {
+            var parsed = JsonNode.Parse(File.ReadAllText(manifestPath));
+            manifest = parsed as JsonObject
+                       ?? throw new InvalidOperationException(
+                           $"Bridge manifest '{manifestPath}' root must be a JSON object.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                $"Bridge manifest '{manifestPath}' is not valid JSON: {exception.Message}",
+                exception);
+        }
+
+        foreach (var fieldName in RequiredBridgeManifestFields)
+        {
+            _ = ReadRequiredBridgeManifestString(manifest, manifestPath, fieldName);
+        }
+
+        foreach (var fieldName in RequiredBridgeManifestFileFields)
+        {
+            var filePath = ReadRequiredBridgeManifestString(manifest, manifestPath, fieldName);
+            if (!File.Exists(filePath))
+            {
+                throw new InvalidOperationException(
+                    $"Bridge manifest '{manifestPath}' field '{fieldName}' points to a missing file: {filePath}");
+            }
+        }
+
+        foreach (var fieldName in OptionalBridgeManifestFileFields)
+        {
+            _ = ReadOptionalBridgeManifestFile(manifest, manifestPath, fieldName);
+        }
+
+        if (emit is not null)
+        {
+            ValidateBridgeManifestPathMatch(
+                manifest,
+                manifestPath,
+                "generatedAssemblyPath",
+                emit.AssemblyPath,
+                "current generated assembly path");
+            ValidateBridgeManifestPathMatch(
+                manifest,
+                manifestPath,
+                "pdbPath",
+                emit.PdbPath,
+                "current PDB path");
+            ValidateBridgeManifestPathMatch(
+                manifest,
+                manifestPath,
+                "debugMapPath",
+                emit.DebugMapPath,
+                "current DebugMap path");
+            ValidateBridgeManifestPathMatch(
+                manifest,
+                manifestPath,
+                "sourceDocumentPath",
+                emit.DebugMap.SourceDocumentPath,
+                "current source document path");
+        }
+    }
+
+    private static string ReadRequiredBridgeManifestString(
+        JsonObject manifest,
+        string manifestPath,
+        string fieldName)
+    {
+        if (!manifest.TryGetPropertyValue(fieldName, out var node) ||
+            node is null ||
+            node.GetValueKind() != JsonValueKind.String)
+        {
+            throw new InvalidOperationException(
+                $"Bridge manifest '{manifestPath}' is missing required string field '{fieldName}'.");
+        }
+
+        var value = node.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException(
+                $"Bridge manifest '{manifestPath}' field '{fieldName}' must not be empty.");
+        }
+
+        return value;
+    }
+
+    private static string? ReadOptionalBridgeManifestFile(
+        JsonObject manifest,
+        string manifestPath,
+        string fieldName)
+    {
+        if (!manifest.TryGetPropertyValue(fieldName, out var node) ||
+            node is null)
+        {
+            return null;
+        }
+
+        if (node.GetValueKind() != JsonValueKind.String)
+        {
+            throw new InvalidOperationException(
+                $"Bridge manifest '{manifestPath}' field '{fieldName}' must be a string when present.");
+        }
+
+        var value = node.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException(
+                $"Bridge manifest '{manifestPath}' field '{fieldName}' must not be empty when present.");
+        }
+
+        if (!File.Exists(value))
+        {
+            throw new InvalidOperationException(
+                $"Bridge manifest '{manifestPath}' field '{fieldName}' points to a missing file: {value}");
+        }
+
+        return value;
+    }
+
+    private static void ValidateBridgeManifestPathMatch(
+        JsonObject manifest,
+        string manifestPath,
+        string fieldName,
+        string expectedPath,
+        string expectedDescription)
+    {
+        var actualPath = ReadOptionalBridgeManifestFile(manifest, manifestPath, fieldName);
+        if (actualPath is null || PathsEqual(actualPath, expectedPath))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Bridge manifest '{manifestPath}' field '{fieldName}' does not match the {expectedDescription}: {actualPath}");
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        return string.Equals(
+            Path.GetFullPath(left),
+            Path.GetFullPath(right),
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
     }
 
     private DapDebugSessionLaunchResult? TryAttachDapRuntime(

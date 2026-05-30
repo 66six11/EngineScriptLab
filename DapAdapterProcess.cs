@@ -17,7 +17,8 @@ public sealed class DapAdapterProcess : IDisposable
     public static DapAdapterProcess Start(
         string fileName,
         IEnumerable<string>? arguments = null,
-        string? workingDirectory = null)
+        string? workingDirectory = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -32,6 +33,14 @@ public sealed class DapAdapterProcess : IDisposable
         if (!string.IsNullOrWhiteSpace(workingDirectory))
         {
             startInfo.WorkingDirectory = workingDirectory;
+        }
+
+        if (environment is not null)
+        {
+            foreach (var (name, value) in environment)
+            {
+                startInfo.Environment[name] = value;
+            }
         }
 
         if (arguments is not null)

@@ -295,7 +295,7 @@ public sealed class ScriptLabJsonRpcServerTests
     public void HandleRequest_WhenAttachDebugHostIsCalled_RecordsCppClrHostTargetAsUnsupported()
     {
         var server = CreateServer();
-        var bridgeManifestPath = @"D:\Game\Apps\SampleViewer\scriptlab.bridge.json";
+        var bridgeManifestPath = CreateValidBridgeManifestPath();
         var enginePackageRoot = @"D:\Game\AshariaEngine";
 
         using var response = Send(
@@ -337,7 +337,7 @@ public sealed class ScriptLabJsonRpcServerTests
     public void HandleRequest_WhenDebugHostIsRegistered_AttachUsesRegisteredHostMetadata()
     {
         var server = CreateServer();
-        var bridgeManifestPath = @"D:\Game\Apps\SampleViewer\scriptlab.bridge.json";
+        var bridgeManifestPath = CreateValidBridgeManifestPath();
         var enginePackageRoot = @"D:\Game\AshariaEngine";
 
         using var none = Send(server, 1, "getRegisteredDebugHost", new { });
@@ -376,6 +376,192 @@ public sealed class ScriptLabJsonRpcServerTests
         Assert.True(attachTarget.GetProperty("terminateOnDisconnect").GetBoolean());
         Assert.Equal(bridgeManifestPath, attachTarget.GetProperty("bridgeManifestPath").GetString());
         Assert.Equal(enginePackageRoot, attachTarget.GetProperty("enginePackageRoot").GetString());
+    }
+
+    [Fact]
+    public void HandleRequest_WhenValidateDebugHostHasValidManifest_ReturnsPreflightResult()
+    {
+        var server = CreateServer();
+        var bridgeManifestPath = CreateValidBridgeManifestPath();
+        var enginePackageRoot = @"D:\Game\AshariaEngine";
+
+        using var response = Send(
+            server,
+            1,
+            "validateDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                hostKind = "cppClr",
+                bridgeManifestPath,
+                enginePackageRoot
+            });
+        var result = response.RootElement.GetProperty("result");
+
+        Assert.Equal("valid", result.GetProperty("status").GetString());
+        Assert.Equal("dap", result.GetProperty("backend").GetString());
+        Assert.Equal("cppClr", result.GetProperty("hostKind").GetString());
+        Assert.Equal(bridgeManifestPath, result.GetProperty("bridgeManifestPath").GetString());
+        Assert.Equal(enginePackageRoot, result.GetProperty("enginePackageRoot").GetString());
+        Assert.True(File.Exists(result.GetProperty("generatedAssemblyPath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("pdbPath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("debugMapPath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("sourceDocumentPath").GetString()));
+
+        using var registered = Send(server, 2, "getRegisteredDebugHost", new { });
+        Assert.Equal("none", registered.RootElement.GetProperty("result").GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void HandleRequest_WhenValidateDebugHostHasNoBridgeManifest_ReturnsJsonRpcError()
+    {
+        var server = CreateServer();
+
+        using var response = Send(
+            server,
+            1,
+            "validateDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                hostKind = "cppClr"
+            });
+
+        var message = response.RootElement.GetProperty("error").GetProperty("message").GetString();
+        Assert.Equal(-32000, response.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Contains("bridgeManifestPath", message, StringComparison.Ordinal);
+        Assert.Contains("required", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleRequest_WhenValidateDebugHostManifestDoesNotMatchCurrentEmit_ReturnsJsonRpcError()
+    {
+        var server = CreateServer();
+        var otherDebugMapPath = Path.Combine(CreateOutputDirectory(), "other.debugmap.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(otherDebugMapPath)!);
+        File.WriteAllText(otherDebugMapPath, "{}");
+        var bridgeManifestPath = CreateValidBridgeManifestPath(
+            (manifest, _) => manifest["debugMapPath"] = otherDebugMapPath);
+
+        using var response = Send(
+            server,
+            1,
+            "validateDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                hostKind = "cppClr",
+                bridgeManifestPath
+            });
+
+        var message = response.RootElement.GetProperty("error").GetProperty("message").GetString();
+        Assert.Equal(-32000, response.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Contains("debugMapPath", message, StringComparison.Ordinal);
+        Assert.Contains("current DebugMap path", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleRequest_WhenRegisterDebugHostHasMissingBridgeManifest_ReturnsJsonRpcError()
+    {
+        var server = CreateServer();
+        var missingManifestPath = Path.Combine(CreateOutputDirectory(), "scriptlab.bridge.json");
+
+        using var response = Send(
+            server,
+            1,
+            "registerDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                processId = 4242,
+                hostKind = "cppClr",
+                bridgeManifestPath = missingManifestPath
+            });
+
+        Assert.Equal(-32000, response.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Contains(
+            "Bridge manifest file does not exist",
+            response.RootElement.GetProperty("error").GetProperty("message").GetString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleRequest_WhenRegisterDebugHostManifestIsMissingRequiredField_ReturnsJsonRpcError()
+    {
+        var server = CreateServer();
+        var bridgeManifestPath = CreateValidBridgeManifestPath((manifest, _) => manifest.Remove("entryMethod"));
+
+        using var response = Send(
+            server,
+            1,
+            "registerDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                processId = 4242,
+                hostKind = "cppClr",
+                bridgeManifestPath
+            });
+
+        Assert.Equal(-32000, response.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Contains(
+            "entryMethod",
+            response.RootElement.GetProperty("error").GetProperty("message").GetString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleRequest_WhenRegisterDebugHostManifestFileFieldIsMissing_ReturnsJsonRpcError()
+    {
+        var server = CreateServer();
+        var missingAssemblyPath = Path.Combine(CreateOutputDirectory(), "missing-bridge.dll");
+        var bridgeManifestPath = CreateValidBridgeManifestPath(
+            (manifest, _) => manifest["assemblyPath"] = missingAssemblyPath);
+
+        using var response = Send(
+            server,
+            1,
+            "registerDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                processId = 4242,
+                hostKind = "cppClr",
+                bridgeManifestPath
+            });
+
+        var message = response.RootElement.GetProperty("error").GetProperty("message").GetString();
+        Assert.Equal(-32000, response.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Contains("assemblyPath", message, StringComparison.Ordinal);
+        Assert.Contains("missing file", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleRequest_WhenAttachDebugHostManifestDoesNotMatchCurrentEmit_ReturnsJsonRpcError()
+    {
+        var server = CreateServer();
+        var otherAssemblyPath = Path.Combine(CreateOutputDirectory(), "other-generated.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(otherAssemblyPath)!);
+        File.WriteAllText(otherAssemblyPath, "not the current generated assembly");
+        var bridgeManifestPath = CreateValidBridgeManifestPath(
+            (manifest, _) => manifest["generatedAssemblyPath"] = otherAssemblyPath);
+
+        using var response = Send(
+            server,
+            1,
+            "attachDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                processId = 4242,
+                hostKind = "cppClr",
+                bridgeManifestPath
+            });
+
+        var message = response.RootElement.GetProperty("error").GetProperty("message").GetString();
+        Assert.Equal(-32000, response.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Contains("generatedAssemblyPath", message, StringComparison.Ordinal);
+        Assert.Contains("current generated assembly path", message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -948,6 +1134,95 @@ public sealed class ScriptLabJsonRpcServerTests
     }
 
     [Fact]
+    public void HandleRequest_WhenDebugHostIsDisconnected_ClearsCachedDapEvents()
+    {
+        var attachCount = 0;
+        var server = CreateServer(request =>
+        {
+            attachCount++;
+            var runtimeTransport = new FakeDapTransport();
+            if (attachCount == 1)
+            {
+                runtimeTransport.Events.Add(new JsonObject
+                {
+                    ["type"] = "event",
+                    ["event"] = "breakpoint",
+                    ["body"] = new JsonObject
+                    {
+                        ["reason"] = "changed",
+                        ["breakpoint"] = new JsonObject
+                        {
+                            ["verified"] = true,
+                            ["line"] = 14,
+                            ["column"] = 13,
+                            ["source"] = new JsonObject
+                            {
+                                ["path"] = request.DebugMap.SourceDocumentPath
+                            }
+                        }
+                    }
+                });
+                runtimeTransport.EnqueueResponse(new JsonObject());
+            }
+
+            return new DapDebugSessionLaunchResult(
+                new DapDebugSessionRuntime(
+                    new DapDebugSessionClient(runtimeTransport, runtimeTransport),
+                    request.Session,
+                    request.DebugMap),
+                new DapBreakpointBackendCapabilities(),
+                InitializedEventReceived: false,
+                Array.Empty<ScriptBreakpointBackendResult>(),
+                new DapDebugSessionLifecycle(
+                    DapDebugSessionPhase.Attached,
+                    new[]
+                    {
+                        DapDebugSessionPhase.Created,
+                        DapDebugSessionPhase.Initialized,
+                        DapDebugSessionPhase.ConfigurationDone,
+                        DapDebugSessionPhase.Attached
+                    }));
+        });
+
+        Send(
+            server,
+            1,
+            "attachDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                processId = 4242,
+                hostKind = "cppClr"
+            }).Dispose();
+        using var firstDrain = Send(server, 2, "drainDebugEvents", new { });
+        Assert.Single(firstDrain.RootElement
+            .GetProperty("result")
+            .GetProperty("breakpointEvents")
+            .EnumerateArray());
+
+        Send(server, 3, "disconnectDebugHost", new { }).Dispose();
+        Send(
+            server,
+            4,
+            "attachDebugHost",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                processId = 5151,
+                hostKind = "cppClr"
+            }).Dispose();
+
+        using var replay = Send(server, 5, "drainDebugEvents", new { afterEventSequence = 0 });
+        var replayResult = replay.RootElement.GetProperty("result");
+
+        Assert.Equal(2, attachCount);
+        Assert.Equal(JsonValueKind.Null, replayResult.GetProperty("eventSequence").ValueKind);
+        Assert.Equal(1, replayResult.GetProperty("nextEventSequence").GetInt64());
+        Assert.Equal(JsonValueKind.Null, replayResult.GetProperty("earliestEventSequence").ValueKind);
+        Assert.Empty(replayResult.GetProperty("breakpointEvents").EnumerateArray());
+    }
+
+    [Fact]
     public async Task HandleRequest_WhenDrainDebugEventsHasTimeout_WaitsForLaterDapEvent()
     {
         FakeDapTransport? runtimeTransport = null;
@@ -1248,6 +1523,35 @@ public sealed class ScriptLabJsonRpcServerTests
             @params = parameters
         });
         return JsonDocument.Parse(server.HandleRequest(request));
+    }
+
+    private static string CreateValidBridgeManifestPath(
+        Action<JsonObject, string>? configure = null)
+    {
+        var directory = Path.Combine(CreateOutputDirectory(), "bridge");
+        Directory.CreateDirectory(directory);
+
+        var hostfxrPath = Path.Combine(directory, "hostfxr.dll");
+        var runtimeConfigPath = Path.Combine(directory, "bridge.runtimeconfig.json");
+        var assemblyPath = Path.Combine(directory, "bridge.dll");
+        File.WriteAllText(hostfxrPath, "hostfxr");
+        File.WriteAllText(runtimeConfigPath, "{}");
+        File.WriteAllText(assemblyPath, "bridge");
+
+        var manifest = new JsonObject
+        {
+            ["hostfxrPath"] = hostfxrPath,
+            ["runtimeConfigPath"] = runtimeConfigPath,
+            ["assemblyPath"] = assemblyPath,
+            ["typeName"] = "ScriptLab.Tests.NativeHost.NativeHostBridge, bridge",
+            ["prepareMethod"] = "Prepare",
+            ["entryMethod"] = "Entry"
+        };
+        configure?.Invoke(manifest, directory);
+
+        var manifestPath = Path.Combine(directory, "scriptlab.bridge.json");
+        File.WriteAllText(manifestPath, manifest.ToJsonString());
+        return manifestPath;
     }
 
     private static string CreateOutputDirectory()

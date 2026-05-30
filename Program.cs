@@ -1,5 +1,6 @@
 using ScriptLab;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 var command = args.Length > 0 && (args[0] == "dump-ir" ||
                                   args[0] == "dump-graph" ||
@@ -9,6 +10,7 @@ var command = args.Length > 0 && (args[0] == "dump-ir" ||
                                   args[0] == "run-debug" ||
                                   args[0] == "debug-smoke" ||
                                   args[0] == "server" ||
+                                  args[0] == "validate-host" ||
                                   args[0] == "verify-ir" ||
                                   args[0] == "run-ir")
     ? args[0]
@@ -130,6 +132,73 @@ if (command == "emit-debug")
     {
         Console.Out.WriteLine(
             $"    {site.ProbeId} {site.DebugSiteId} {site.GraphNodeId} {site.Kind} {site.Label} @ {BehaviorIrText.FormatSource(site.Source)}");
+    }
+
+    return 0;
+}
+
+if (command == "validate-host")
+{
+    if (result.HasErrors)
+    {
+        ConsoleScriptReporter.Write(result, Console.Out);
+        return 1;
+    }
+
+    if (positionalArgs.Length < 3)
+    {
+        Console.Error.WriteLine(
+            "Usage: validate-host <script-path> <output-directory> <bridge-manifest.json> [--host-kind=cppClr] [--engine-root=<path>] [--json]");
+        return 1;
+    }
+
+    var outputDirectory = Path.GetFullPath(positionalArgs[1]);
+    var bridgeManifestPath = Path.GetFullPath(positionalArgs[2]);
+    var hostKind = GetOptionValue(commandArgs, "--host-kind") ?? "cppClr";
+    var enginePackageRoot = GetOptionValue(commandArgs, "--engine-root");
+    using var server = new ScriptLabJsonRpcServer(new ScriptLabServerOptions(outputDirectory));
+    var response = SendServerRequest(
+        server,
+        id: 1,
+        "validateDebugHost",
+        new
+        {
+            scriptPath = fullPath,
+            outputDirectory,
+            hostKind,
+            bridgeManifestPath,
+            enginePackageRoot
+        });
+
+    if (response.TryGetPropertyValue("error", out var errorNode) &&
+        errorNode is JsonObject error)
+    {
+        Console.Error.WriteLine(error["message"]?.GetValue<string>() ?? "validate-host failed.");
+        return 1;
+    }
+
+    var validation = response["result"]!.AsObject();
+    if (optionArgs.Contains("--json"))
+    {
+        Console.Out.WriteLine(validation.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+    else
+    {
+        Console.Out.WriteLine("DebugHostValidation:");
+        Console.Out.WriteLine($"  Status: {validation["status"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  Backend: {validation["backend"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  HostKind: {validation["hostKind"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  BridgeManifest: {validation["bridgeManifestPath"]!.GetValue<string>()}");
+        if (validation["enginePackageRoot"] is not null)
+        {
+            Console.Out.WriteLine($"  EnginePackageRoot: {validation["enginePackageRoot"]!.GetValue<string>()}");
+        }
+
+        Console.Out.WriteLine($"  GeneratedAssembly: {validation["generatedAssemblyPath"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  Pdb: {validation["pdbPath"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  DebugMap: {validation["debugMapPath"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  SourceDocument: {validation["sourceDocumentPath"]!.GetValue<string>()}");
+        Console.Out.WriteLine($"  Reason: {validation["reason"]!.GetValue<string>()}");
     }
 
     return 0;
@@ -332,4 +401,20 @@ static string? GetOptionValue(IEnumerable<string> arguments, string name)
     }
 
     return null;
+}
+
+static JsonObject SendServerRequest(
+    ScriptLabJsonRpcServer server,
+    int id,
+    string method,
+    object parameters)
+{
+    var request = JsonSerializer.Serialize(new
+    {
+        jsonrpc = "2.0",
+        id,
+        method,
+        @params = parameters
+    });
+    return JsonNode.Parse(server.HandleRequest(request))!.AsObject();
 }

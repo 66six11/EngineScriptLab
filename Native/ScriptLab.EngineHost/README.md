@@ -36,6 +36,20 @@ Required runtime fields:
 
 Optional diagnostic fields may be present and are ignored by the native host, including `generatedAssemblyPath`, `pdbPath`, `debugMapPath`, and `sourceDocumentPath`.
 
+ScriptLab's JSON-RPC server validates those optional diagnostic fields when they are present. Use `validateDebugHost` before starting or attaching a real engine host to catch stale bridge manifests:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"validateDebugHost","params":{
+  "scriptPath":"D:\\...\\PlayerMove.ash.cs",
+  "outputDirectory":"D:\\...\\generated",
+  "hostKind":"cppClr",
+  "bridgeManifestPath":"D:\\...\\scriptlab.bridge.json",
+  "enginePackageRoot":"D:\\...\\AshariaEngine"
+}}
+```
+
+On success the result has `status: "valid"` and echoes the current generated assembly, PDB, DebugMap, and source document paths. On failure the JSON-RPC error message names the failing manifest field, for example a missing `assemblyPath` file or a `generatedAssemblyPath` that does not match the current ScriptLab emit. `registerDebugHost` and `attachDebugHost` run the same validation.
+
 The configured prepare and entry methods must match the native component entry-point signature from the contract header:
 
 ```cpp

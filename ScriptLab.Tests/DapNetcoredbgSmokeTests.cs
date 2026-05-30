@@ -42,7 +42,7 @@ public sealed class DapNetcoredbgSmokeTests
         var targetFramework = Environment.GetEnvironmentVariable(TargetFrameworkEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(targetFramework))
         {
-            targetFramework = "net9.0";
+            targetFramework = $"net{Environment.Version.Major}.0";
         }
 
         var workspace = Path.Combine(
@@ -58,7 +58,8 @@ public sealed class DapNetcoredbgSmokeTests
             using var adapter = DapAdapterProcess.Start(
                 adapterPath,
                 new[] { "--interpreter=vscode" },
-                smokeProgram.OutputDirectory);
+                smokeProgram.OutputDirectory,
+                CreateDotnetAdapterEnvironment(dotnetPath));
             var client = new DapDebugSessionClient(adapter.Client, adapter.Client);
 
             var handshake = client.Initialize(new JsonObject
@@ -80,11 +81,10 @@ public sealed class DapNetcoredbgSmokeTests
                 ["cwd"] = smokeProgram.OutputDirectory,
                 ["stopAtEntry"] = false
             });
-            launch.Wait();
             output.WriteLine(
-                client.WaitForInitializedEvent(TimeSpan.FromMilliseconds(250))
+                client.WaitForInitializedEvent(AdapterEventTimeout)
                     ? "netcoredbg initialized event was observed."
-                    : "netcoredbg initialized event was not observed before launch response.");
+                    : "netcoredbg initialized event was not observed before configuration.");
 
             var breakpoint = Assert.Single(client.SetBreakpoints(
                 smokeProgram.SourcePath,
@@ -92,6 +92,7 @@ public sealed class DapNetcoredbgSmokeTests
             Assert.Equal(4, breakpoint.Line);
 
             client.ConfigurationDone();
+            launch.Wait();
 
             var stopped = WaitForStoppedEvent(client, AdapterEventTimeout);
             Assert.Equal(ScriptStoppedReason.Breakpoint, stopped.Reason);
@@ -803,6 +804,29 @@ public sealed class DapNetcoredbgSmokeTests
                 smoke.Emit,
                 smoke.BridgeRuntimeConfigPath,
                 smoke.BridgeAssemblyPath);
+            var validation = SendServerRequest(
+                server,
+                3,
+                "validateDebugHost",
+                new
+                {
+                    hostKind = "cppClr",
+                    bridgeManifestPath,
+                    enginePackageRoot = smoke.EngineRoot
+                });
+            var validationResult = validation["result"]!.AsObject();
+            Assert.Equal("valid", validationResult["status"]!.GetValue<string>());
+            Assert.Equal("dap", validationResult["backend"]!.GetValue<string>());
+            Assert.Equal("cppClr", validationResult["hostKind"]!.GetValue<string>());
+            Assert.Equal(bridgeManifestPath, validationResult["bridgeManifestPath"]!.GetValue<string>());
+            Assert.Equal(smoke.EngineRoot, validationResult["enginePackageRoot"]!.GetValue<string>());
+            Assert.Equal(smoke.Emit.AssemblyPath, validationResult["generatedAssemblyPath"]!.GetValue<string>());
+            Assert.Equal(smoke.Emit.PdbPath, validationResult["pdbPath"]!.GetValue<string>());
+            Assert.Equal(smoke.Emit.DebugMapPath, validationResult["debugMapPath"]!.GetValue<string>());
+            Assert.Equal(
+                smoke.Emit.DebugMap.SourceDocumentPath,
+                validationResult["sourceDocumentPath"]!.GetValue<string>());
+
             hostProcess = StartProcess(
                 smoke.NativeHostPath,
                 smoke.WorkingDirectory,
@@ -814,7 +838,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             var registered = SendServerRequest(
                 server,
-                3,
+                4,
                 "registerDebugHost",
                 new
                 {
@@ -830,7 +854,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             var attach = SendServerRequest(
                 server,
-                4,
+                5,
                 "attachDebugHost",
                 new { });
             var attachResult = attach["result"]!.AsObject();
@@ -865,7 +889,7 @@ public sealed class DapNetcoredbgSmokeTests
             var debugStateId = stoppedResult["debugStateId"]!.GetValue<int>();
             var variables = SendServerRequest(
                 server,
-                5,
+                6,
                 "readVariables",
                 new { debugStateId });
             var variablesResult = variables["result"]!.AsObject();
@@ -874,12 +898,12 @@ public sealed class DapNetcoredbgSmokeTests
 
             SendServerRequest(
                 server,
-                6,
+                7,
                 "continue",
                 new { threadId = stoppedEvent["threadId"]!.GetValue<int>() });
             var exitWait = SendServerRequest(
                 server,
-                7,
+                8,
                 "waitDebugHostExit",
                 new { timeoutMilliseconds = 5000 });
             var exitWaitResult = exitWait["result"]!.AsObject();
@@ -896,7 +920,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             SendServerRequest(
                 server,
-                8,
+                9,
                 "disconnectDebugHost",
                 new { terminateDebuggee = false });
             Assert.Equal(0, hostProcess.ExitCode);
@@ -1963,6 +1987,19 @@ public sealed class DapNetcoredbgSmokeTests
         {
             startInfo.Environment["DOTNET_ROOT"] = Path.GetDirectoryName(fileName)!;
         }
+    }
+
+    private static IReadOnlyDictionary<string, string> CreateDotnetAdapterEnvironment(string dotnetPath)
+    {
+        var dotnetDirectory = Path.GetDirectoryName(dotnetPath)
+                              ?? throw new InvalidOperationException(
+                                  $"Could not resolve dotnet directory from '{dotnetPath}'.");
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DOTNET_ROOT"] = dotnetDirectory,
+            ["DOTNET_ROOT_X64"] = dotnetDirectory,
+            ["PATH"] = dotnetDirectory + Path.PathSeparator + (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+        };
     }
 
     private static bool PathsEqual(string? left, string right)
