@@ -4,14 +4,18 @@ param(
     [string]$DapAdapterPath,
     [string]$ScriptPath = "Samples\PlayerMove.ash.cs",
     [string]$OutputDirectory = "bin\ScriptDebug\RealEngineProbe",
+    [string]$BridgeProjectPath,
     [Parameter(Mandatory = $true)]
     [string]$BridgeManifestPath,
+    [string]$EngineHostPath,
+    [string]$ReadyFilePath,
     [string]$EnginePackageRoot,
     [int]$HostProcessId = 0,
     [int]$BreakpointLine = 14,
     [int]$BreakpointColumn = 13,
     [int]$EntityId = 101,
     [int]$TimeoutMilliseconds = 5000,
+    [int]$ReadyTimeoutMilliseconds = 10000,
     [string]$GoFilePath,
     [string]$Configuration = "Debug",
     [switch]$SkipBuild,
@@ -84,6 +88,19 @@ function Assert-ExecutableIfQualified([string]$Path, [string]$Description) {
     }
 }
 
+function Wait-ForFile([string]$Path, [int]$TimeoutMilliseconds) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 25
+    }
+
+    throw "Timed out waiting for file: $Path"
+}
+
 function Quote-ProcessArgument([string]$Argument) {
     if ($null -eq $Argument -or $Argument.Length -eq 0) {
         return '""'
@@ -94,6 +111,39 @@ function Quote-ProcessArgument([string]$Argument) {
     }
 
     return '"' + ($Argument -replace '"', '\"') + '"'
+}
+
+function Join-ProcessArguments([string[]]$Arguments) {
+    return (($Arguments | ForEach-Object { Quote-ProcessArgument $_ }) -join " ")
+}
+
+function Start-ScriptLabEngineHost(
+    [string]$HostPath,
+    [string]$ManifestPath,
+    [string]$ReadyPath,
+    [string]$GoPath) {
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $HostPath
+    $startInfo.Arguments = Join-ProcessArguments @(
+        "--scriptlab-host",
+        "--scriptlab-bridge-manifest",
+        $ManifestPath,
+        "--scriptlab-ready-file",
+        $ReadyPath,
+        "--scriptlab-go-file",
+        $GoPath)
+    $startInfo.WorkingDirectory = Split-Path -Parent $HostPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $false
+    $startInfo.RedirectStandardError = $false
+    $startInfo.CreateNoWindow = $true
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) {
+        throw "Failed to start engine host: $HostPath"
+    }
+
+    return $process
 }
 
 function New-JsonParams([hashtable]$Pairs) {
@@ -181,7 +231,19 @@ $dotnet = Resolve-DefaultDotnetPath
 $dapAdapter = Resolve-DefaultDapAdapterPath
 $script = Resolve-FullPath $ScriptPath $projectRootPath
 $emitDirectory = Resolve-FullPath $OutputDirectory $projectRootPath
+$bridgeProject = $null
+if ($BridgeProjectPath) {
+    $bridgeProject = Resolve-FullPath $BridgeProjectPath (Get-Location).Path
+}
 $manifest = Resolve-FullPath $BridgeManifestPath (Get-Location).Path
+$engineHost = $null
+if ($EngineHostPath) {
+    $engineHost = Resolve-FullPath $EngineHostPath (Get-Location).Path
+}
+$readyFile = $null
+if ($ReadyFilePath) {
+    $readyFile = Resolve-FullPath $ReadyFilePath (Get-Location).Path
+}
 $goFile = $null
 if ($GoFilePath) {
     $goFile = Resolve-FullPath $GoFilePath (Get-Location).Path
@@ -193,6 +255,21 @@ $serverAssembly = Join-Path $projectRootPath "bin\$Configuration\net10.0\ScriptL
 Assert-ExistingFile $projectPath "ScriptLab project"
 Assert-ExistingFile $script "Script file"
 Assert-ExistingFile $manifest "Bridge manifest"
+if ($bridgeProject) {
+    Assert-ExistingFile $bridgeProject "Bridge project"
+}
+
+if ($engineHost) {
+    Assert-ExistingFile $engineHost "Engine host"
+    if (-not $readyFile) {
+        throw "Set -ReadyFilePath when using -EngineHostPath."
+    }
+
+    if (-not $goFile) {
+        throw "Set -GoFilePath when using -EngineHostPath."
+    }
+}
+
 Assert-ExecutableIfQualified $dotnet "dotnet executable"
 Assert-ExistingFile $dapAdapter "DAP adapter"
 
@@ -229,6 +306,8 @@ if ($dotnetDirectory) {
 
 $server = New-Object System.Diagnostics.Process
 $server.StartInfo = $startInfo
+$startedHostProcess = $null
+$completed = $false
 
 Write-Host "Starting ScriptLab JSON-RPC server..."
 [void]$server.Start()
@@ -248,6 +327,14 @@ try {
         })
     }) | Out-Null
 
+    if ($bridgeProject) {
+        Write-Host "Building bridge project..."
+        & $dotnet build $bridgeProject -c $Configuration --nologo
+        if ($LASTEXITCODE -ne 0) {
+            throw "bridge project build failed with exit code $LASTEXITCODE."
+        }
+    }
+
     $validation = Send-JsonRpcRequest $server "validateDebugHost" (New-JsonParams @{
         hostKind = "cppClr"
         bridgeManifestPath = $manifest
@@ -256,6 +343,19 @@ try {
     Write-Host "Validated bridge manifest."
     Write-Host "  generatedAssemblyPath: $($validation.result.generatedAssemblyPath)"
     Write-Host "  debugMapPath: $($validation.result.debugMapPath)"
+
+    if ($engineHost) {
+        Remove-Item -LiteralPath $readyFile,$goFile -Force -ErrorAction SilentlyContinue
+        Write-Host "Starting engine host..."
+        $startedHostProcess = Start-ScriptLabEngineHost $engineHost $manifest $readyFile $goFile
+        Wait-ForFile $readyFile $ReadyTimeoutMilliseconds
+        if ($startedHostProcess.HasExited) {
+            throw "Engine host exited before attach with code $($startedHostProcess.ExitCode)."
+        }
+
+        $HostProcessId = $startedHostProcess.Id
+        Write-Host "Engine host ready: pid=$HostProcessId"
+    }
 
     if ($HostProcessId -le 0) {
         $hostProcessText = Read-Host "Start the engine host, wait for its ready barrier, then enter process id"
@@ -346,8 +446,21 @@ try {
         terminateDebuggee = $false
     }) | Out-Null
     Write-Host "Disconnected."
+    $completed = $true
 }
 finally {
+    if ($null -ne $startedHostProcess) {
+        if (-not $startedHostProcess.HasExited -and -not $completed) {
+            try {
+                $startedHostProcess.Kill()
+            }
+            catch {
+            }
+        }
+
+        $startedHostProcess.Dispose()
+    }
+
     if ($null -ne $server -and -not $server.HasExited) {
         try {
             $server.StandardInput.Close()

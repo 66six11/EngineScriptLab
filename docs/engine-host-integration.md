@@ -122,6 +122,24 @@ scripts\Invoke-ScriptLabEngineHostDebug.ps1 `
 
 If the engine uses a different ready/go mechanism, omit `-GoFilePath`; the script pauses after attach and asks you to release the host manually.
 
+For hosts that expose the `--scriptlab-host` command line, the runner can also rebuild a bridge project
+after `loadGraph`, start the host, wait for its ready file, attach, write the go file, continue, and wait for
+the host to exit:
+
+```powershell
+scripts\Invoke-ScriptLabEngineHostDebug.ps1 `
+  -BridgeProjectPath D:\Game\packages\scriptlab-dotnet-bridge\bridge\bridge.csproj `
+  -BridgeManifestPath D:\Game\apps\sample-viewer\scriptlab.bridge.json `
+  -EngineHostPath D:\TechArt\VkEngine\build\cmake\msvc-debug\apps\sample-viewer\asharia-sample-viewer.exe `
+  -ReadyFilePath D:\Game\apps\sample-viewer\scriptlab.ready `
+  -GoFilePath D:\Game\apps\sample-viewer\scriptlab.go `
+  -EnginePackageRoot D:\TechArt\VkEngine `
+  -ScriptPath D:\Game\Scripts\PlayerMove.ash.cs `
+  -OutputDirectory D:\Game\packages\script-runtime\generated `
+  -ContinueAfterStop `
+  -WaitForExit
+```
+
 ## JSON-RPC Sequence
 
 Use `loadGraph` to compile the current script into debug emit files:
