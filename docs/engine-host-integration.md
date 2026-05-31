@@ -95,6 +95,20 @@ $env:SCRIPTLAB_CPP_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Commu
 
 The server reads line-delimited JSON-RPC from stdin and writes one JSON-RPC response per line to stdout.
 
+For local VkEngine-style smoke runs, generate the managed bridge project and `scriptlab.bridge.json` first:
+
+```powershell
+scripts\New-ScriptLabEngineHostBridge.ps1 `
+  -ScriptPath D:\Game\Scripts\PlayerMove.ash.cs `
+  -OutputDirectory D:\Game\packages\script-runtime\generated `
+  -BridgeDirectory D:\Game\packages\scriptlab-dotnet-bridge\bridge `
+  -BridgeManifestPath D:\Game\apps\sample-viewer\scriptlab.bridge.json
+```
+
+The generated bridge is a small debug smoke adapter. It references the current ScriptLab debug assembly,
+loads the generated behavior in `Prepare`, then creates entity `101`, presses `Key.W`, and ticks once in
+`Entry`. The script prints the bridge project path, manifest path, and suggested ready/go file paths.
+
 For build scripts or local preflight checks that do not need a long-running server, use the CLI wrapper over the same validation path:
 
 ```powershell
