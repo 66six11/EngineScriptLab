@@ -73,6 +73,24 @@ public sealed class BehaviorIrLowererTests
         Assert.True(watches[1].IsStatement);
     }
 
+    [Theory]
+    [InlineData("PlayerMove.ash.cs")]
+    [InlineData("DebugWatch.ash.cs")]
+    [InlineData("PrivateSerializedField.ash.cs")]
+    public void LowerFile_WhenScriptIsValid_DoesNotEmitUnsupportedIr(string fileName)
+    {
+        var module = BehaviorIrLowerer.LowerFile(GetSamplePath(fileName));
+
+        var unsupported = module.Functions
+            .SelectMany(function => function.Blocks)
+            .SelectMany(block => block.Instructions)
+            .Where(instruction =>
+                BehaviorIrText.Format(instruction).Contains("Unsupported", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.Empty(unsupported);
+    }
+
     [Fact]
     public void LowerText_WhenIfElseIsUsed_BranchTargetsElseBlock()
     {

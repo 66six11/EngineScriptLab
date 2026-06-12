@@ -28,8 +28,6 @@ public static class BehaviorIrText
             BehaviorIrStoreLocal storeLocal => $"StoreLocal {storeLocal.LocalName}, {storeLocal.Value}",
             BehaviorIrAssign assign => $"Assign {assign.TargetExpression}, {assign.Value}",
             BehaviorIrDebugWatch debugWatch => $"DebugWatch {debugWatch.Name}, {debugWatch.Value}",
-            BehaviorIrUnsupportedStatement unsupported => $"UnsupportedStatement {unsupported.Kind}",
-            BehaviorIrUnsupportedExpression unsupported => $"{unsupported.Target} = UnsupportedExpression {unsupported.Expression}",
             _ => instruction.ToString() ?? string.Empty
         };
     }

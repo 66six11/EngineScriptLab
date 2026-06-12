@@ -170,6 +170,21 @@ public static class GraphCSharpRuleSet
             "Unsupported Graph C# syntax",
             "throw expressions are not supported by Graph C# v0."),
         new(
+            SyntaxKind.SwitchStatement,
+            UnsupportedSyntaxId,
+            "Unsupported Graph C# syntax",
+            "switch statements are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.SwitchExpression,
+            UnsupportedExpressionId,
+            "Unsupported Graph C# expression",
+            "switch expressions are not supported by Graph C# v0."),
+        new(
+            SyntaxKind.LogicalNotExpression,
+            UnsupportedExpressionId,
+            "Unsupported Graph C# expression",
+            "Logical negation is not supported by Graph C# v0."),
+        new(
             SyntaxKind.GotoStatement,
             UnsupportedSyntaxId,
             "Unsupported Graph C# syntax",

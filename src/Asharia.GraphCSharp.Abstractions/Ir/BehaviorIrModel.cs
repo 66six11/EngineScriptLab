@@ -105,12 +105,3 @@ public sealed record BehaviorIrDebugWatch(
     bool IsStatement,
     BehaviorSourceSpan Source)
     : BehaviorIrInstruction(Source);
-
-public sealed record BehaviorIrUnsupportedStatement(string Kind, BehaviorSourceSpan Source)
-    : BehaviorIrInstruction(Source);
-
-public sealed record BehaviorIrUnsupportedExpression(
-    string Target,
-    string Expression,
-    BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);

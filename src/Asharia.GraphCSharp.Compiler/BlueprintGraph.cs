@@ -203,7 +203,6 @@ public static class BlueprintGraphProjector
                 BehaviorIrLoadMember loadMember => CreateNode("GetMember", loadMember.Member, loadMember),
                 BehaviorIrBinaryOp binaryOp => CreateNode("BinaryOp", binaryOp.Operator, binaryOp),
                 BehaviorIrMakeStruct makeStruct => CreateNode("MakeStruct", makeStruct.Type, makeStruct),
-                BehaviorIrUnsupportedExpression unsupported => CreateNode("Value", unsupported.Expression, unsupported),
                 _ => CreateNode("Value", BehaviorIrText.Format(instruction), instruction)
             };
         }

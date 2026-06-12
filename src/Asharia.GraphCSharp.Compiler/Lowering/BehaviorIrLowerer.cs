@@ -278,10 +278,7 @@ public static class BehaviorIrLowerer
                     break;
 
                 default:
-                    currentBlock.Instructions.Add(new BehaviorIrUnsupportedStatement(
-                        statement.Kind().ToString(),
-                        GetSourceSpan(statement)));
-                    break;
+                    throw CreateUnsupportedLoweringException(statement);
             }
         }
 
@@ -378,10 +375,7 @@ public static class BehaviorIrLowerer
                 ObjectCreationExpressionSyntax objectCreation => LowerObjectCreation(objectCreation),
                 InvocationExpressionSyntax invocation => LowerInvocation(invocation, emitResult: true),
                 ParenthesizedExpressionSyntax parenthesized => LowerExpression(parenthesized.Expression),
-                _ => EmitValue(target => new BehaviorIrUnsupportedExpression(
-                    target,
-                    expression.ToString(),
-                    GetSourceSpan(expression)))
+                _ => throw CreateUnsupportedLoweringException(expression)
             };
         }
 
@@ -512,10 +506,7 @@ public static class BehaviorIrLowerer
             var arguments = invocation.ArgumentList.Arguments;
             if (arguments.Count < 2)
             {
-                currentBlock.Instructions.Add(new BehaviorIrUnsupportedStatement(
-                    invocation.ToString(),
-                    GetSourceSpan(invocation)));
-                return true;
+                throw CreateUnsupportedLoweringException(invocation);
             }
 
             var watchName = GetDebugWatchName(arguments[0].Expression);
@@ -573,6 +564,12 @@ public static class BehaviorIrLowerer
                 SyntaxKind.GreaterThanOrEqualExpression => "GreaterThanOrEqual",
                 _ => binary.Kind().ToString()
             };
+        }
+
+        private static InvalidOperationException CreateUnsupportedLoweringException(SyntaxNode node)
+        {
+            return new InvalidOperationException(
+                $"Graph C# analyzer allowed unsupported syntax '{node.Kind()}' to reach IR lowering.");
         }
     }
 
