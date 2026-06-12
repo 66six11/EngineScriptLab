@@ -10,7 +10,7 @@ public sealed record BehaviorIrVerificationVec3(float X, float Y, float Z)
     }
 }
 
-public sealed record BehaviorIrObservedCall(string FunctionId, IReadOnlyList<object?> Arguments);
+public sealed record BehaviorIrObservedCall(FunctionId FunctionId, IReadOnlyList<object?> Arguments);
 
 public sealed record BehaviorIrVerificationResult(IReadOnlyList<BehaviorIrObservedCall> Calls);
 
@@ -31,9 +31,9 @@ public sealed class BehaviorIrVerifier
         var function = module.Functions.Single(candidate => candidate.Name == functionName);
         var blockMap = function.Blocks.ToDictionary(block => block.Name, StringComparer.Ordinal);
         var fields = module.Fields.ToDictionary(
-            field => field.Name,
+            field => field.FieldId,
             field => ParseFieldInitialValue(field),
-            StringComparer.Ordinal);
+            EqualityComparer<FieldId>.Default);
         var locals = new Dictionary<string, object?>(parameters, StringComparer.Ordinal);
         var temps = new Dictionary<string, object?>(StringComparer.Ordinal);
         var calls = new List<BehaviorIrObservedCall>();
@@ -61,7 +61,7 @@ public sealed class BehaviorIrVerifier
                     break;
 
                 case BehaviorIrLoadField loadField:
-                    temps[loadField.Target] = fields[loadField.FieldName];
+                    temps[loadField.Target] = fields[loadField.FieldId];
                     break;
 
                 case BehaviorIrLoadLocal loadLocal:
@@ -139,7 +139,7 @@ public sealed class BehaviorIrVerifier
     {
         var arguments = call.Arguments.Select(argument => temps[argument]).ToArray();
 
-        return call.FunctionId switch
+        return call.FunctionId.Value switch
         {
             "asharia.input.keyDown" => downKeys.Contains((string)arguments[0]!),
             "asharia.transform.translate" => RecordCall(call.FunctionId, arguments, calls),
@@ -148,7 +148,7 @@ public sealed class BehaviorIrVerifier
     }
 
     private static object? RecordCall(
-        string functionId,
+        FunctionId functionId,
         IReadOnlyList<object?> arguments,
         List<BehaviorIrObservedCall> calls)
     {

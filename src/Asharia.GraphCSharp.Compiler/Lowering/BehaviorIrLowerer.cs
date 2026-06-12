@@ -148,6 +148,7 @@ public static class BehaviorIrLowerer
         ScriptBehaviorSummary behavior)
     {
         var behaviorFieldNames = behavior.Fields.Select(field => field.Name).ToHashSet(StringComparer.Ordinal);
+        var behaviorFieldsByName = behavior.Fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
 
         return behaviorClass.Members
             .OfType<FieldDeclarationSyntax>()
@@ -158,7 +159,16 @@ public static class BehaviorIrLowerer
                 InitialValue = variable.Initializer?.Value.ToString()
             }))
             .Where(field => behaviorFieldNames.Contains(field.Name))
-            .Select(field => new BehaviorIrField(field.Name, field.Type, field.InitialValue))
+            .Select(field =>
+            {
+                var summary = behaviorFieldsByName[field.Name];
+                return new BehaviorIrField(
+                    summary.FieldId ?? throw new InvalidOperationException(
+                        $"Cannot lower field '{field.Name}' without a stable field id."),
+                    field.Name,
+                    field.Type,
+                    field.InitialValue);
+            })
             .ToArray();
     }
 
@@ -166,17 +176,21 @@ public static class BehaviorIrLowerer
         ClassDeclarationSyntax behaviorClass,
         ScriptBehaviorSummary behavior)
     {
-        var fieldNames = behavior.Fields.Select(field => field.Name).ToHashSet(StringComparer.Ordinal);
+        var fieldIdsByName = behavior.Fields
+            .Where(field => field.FieldId is not null)
+            .ToDictionary(field => field.Name, field => field.FieldId!.Value, StringComparer.Ordinal);
 
         return behaviorClass.Members
             .OfType<MethodDeclarationSyntax>()
-            .Select(method => LowerFunction(method, fieldNames))
+            .Select(method => LowerFunction(method, fieldIdsByName))
             .ToArray();
     }
 
-    private static BehaviorIrFunction LowerFunction(MethodDeclarationSyntax method, ISet<string> fieldNames)
+    private static BehaviorIrFunction LowerFunction(
+        MethodDeclarationSyntax method,
+        IReadOnlyDictionary<string, FieldId> fieldIdsByName)
     {
-        var builder = new FunctionBuilder(fieldNames, GetSourceSpan(method));
+        var builder = new FunctionBuilder(fieldIdsByName, GetSourceSpan(method));
 
         if (method.Body is not null)
         {
@@ -209,16 +223,18 @@ public static class BehaviorIrLowerer
 
     private sealed class FunctionBuilder
     {
-        private readonly ISet<string> fieldNames;
+        private readonly IReadOnlyDictionary<string, FieldId> fieldIdsByName;
         private readonly BehaviorSourceSpan defaultSource;
         private readonly List<MutableBlock> blocks = new();
         private int tempIndex;
         private int blockIndex;
         private MutableBlock currentBlock;
 
-        public FunctionBuilder(ISet<string> fieldNames, BehaviorSourceSpan defaultSource)
+        public FunctionBuilder(
+            IReadOnlyDictionary<string, FieldId> fieldIdsByName,
+            BehaviorSourceSpan defaultSource)
         {
-            this.fieldNames = fieldNames;
+            this.fieldIdsByName = fieldIdsByName;
             this.defaultSource = defaultSource;
             currentBlock = CreateBlock("entry");
         }
@@ -372,9 +388,9 @@ public static class BehaviorIrLowerer
                 return EmitValue(target => new BehaviorIrLoadSelf(target, GetSourceSpan(identifier)));
             }
 
-            if (fieldNames.Contains(name))
+            if (fieldIdsByName.TryGetValue(name, out var fieldId))
             {
-                return EmitValue(target => new BehaviorIrLoadField(target, name, GetSourceSpan(identifier)));
+                return EmitValue(target => new BehaviorIrLoadField(target, fieldId, name, GetSourceSpan(identifier)));
             }
 
             return EmitValue(target => new BehaviorIrLoadLocal(target, name, GetSourceSpan(identifier)));
@@ -435,7 +451,7 @@ public static class BehaviorIrLowerer
             var functionName = invocation.Expression.ToString();
             if (!GraphCSharpBindingRegistry.TryGetFunctionId(functionName, out var functionId))
             {
-                functionId = functionName;
+                functionId = new FunctionId(functionName);
             }
 
             if (emitResult)

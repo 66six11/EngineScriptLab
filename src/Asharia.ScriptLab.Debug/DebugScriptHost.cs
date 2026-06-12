@@ -7,7 +7,7 @@ namespace ScriptLab;
 public sealed record DebugInspectableField(
     int EntityId,
     string BehaviorId,
-    string FieldId,
+    FieldId FieldId,
     string Name,
     string Type,
     string Accessibility,
@@ -343,8 +343,7 @@ public sealed class DebugScriptInstance
     private FieldInfo ResolveField(string fieldId)
     {
         return GetInspectableFields().FirstOrDefault(field =>
-                string.Equals(GetFieldId(field), fieldId, StringComparison.Ordinal) ||
-                string.Equals(field.Name, fieldId, StringComparison.Ordinal))
+                string.Equals(GetFieldId(field).ToString(), fieldId, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"Could not resolve field '{fieldId}' on behavior '{BehaviorId}'.");
     }
@@ -370,9 +369,18 @@ public sealed class DebugScriptInstance
             HasAttribute(field, "SerializeField");
     }
 
-    private static string GetFieldId(FieldInfo field)
+    private static FieldId GetFieldId(FieldInfo field)
     {
-        return field.Name;
+        var idValue = field
+            .GetCustomAttributes(inherit: false)
+            .Where(attribute => DebugScriptReflection.AttributeMatches(attribute.GetType(), "Field"))
+            .Select(attribute => attribute.GetType().GetProperty("Id")?.GetValue(attribute))
+            .FirstOrDefault(value => value is int);
+
+        return idValue is not int id
+            ? throw new InvalidOperationException(
+                $"Inspectable field '{field.Name}' on behavior '{field.DeclaringType?.FullName}' is missing [Field(id)].")
+            : new FieldId(id);
     }
 
     private static string GetSerialization(FieldInfo field)

@@ -2,8 +2,9 @@ using Asharia.Behavior;
 
 namespace com.game;
 
-public class InvalidSyntax : BehaviorComponent
+[Behavior("com.game.InvalidSyntax")] public sealed partial class InvalidSyntax : BehaviorComponent
 {
+    [Field(1)]
     public float Speed = 4.0f;
 
     protected override void Update(float delta)

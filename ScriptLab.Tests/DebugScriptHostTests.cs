@@ -14,19 +14,19 @@ public sealed class DebugScriptHostTests
         var host = DebugScriptHost.Load(emit);
 
         var instance = host.MountBehavior(entityId: 101, "com.game.PlayerMove");
-        var speed = Assert.Single(instance.GetFields(), field => field.FieldId == "Speed");
+        var speed = Assert.Single(instance.GetFields(), field => field.FieldId == new FieldId(1));
 
         Assert.Equal(101, speed.EntityId);
         Assert.Equal("com.game.PlayerMove", speed.BehaviorId);
         Assert.Equal("Speed", speed.Name);
         Assert.Equal("float", speed.Type);
         Assert.Equal("public", speed.Accessibility);
-        Assert.Equal("public", speed.Serialization);
+        Assert.Equal("explicit", speed.Serialization);
         Assert.Equal(4.0f, speed.Value);
 
-        host.SetFieldValue(101, "com.game.PlayerMove", "Speed", "8.5");
+        host.SetFieldValue(101, "com.game.PlayerMove", "1", "8.5");
 
-        Assert.Equal(8.5f, host.GetFieldValue(101, "com.game.PlayerMove", "Speed"));
+        Assert.Equal(8.5f, host.GetFieldValue(101, "com.game.PlayerMove", "1"));
     }
 
     [Fact]
@@ -41,15 +41,15 @@ public sealed class DebugScriptHostTests
         var instance = host.MountBehavior(entityId: 7, "com.game.PrivateSerializedField");
         var speed = Assert.Single(instance.GetFields());
 
-        Assert.Equal("speed", speed.FieldId);
+        Assert.Equal(new FieldId(1), speed.FieldId);
         Assert.Equal("float", speed.Type);
         Assert.Equal("private", speed.Accessibility);
         Assert.Equal("explicit", speed.Serialization);
         Assert.Equal(4.0f, speed.Value);
 
-        instance.SetFieldValue("speed", 2.25f);
+        instance.SetFieldValue("1", 2.25f);
 
-        Assert.Equal(2.25f, instance.GetFieldValue("speed"));
+        Assert.Equal(2.25f, instance.GetFieldValue("1"));
     }
 
     [Fact]

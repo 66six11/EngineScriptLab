@@ -13,7 +13,7 @@ public static class BehaviorIrText
         {
             BehaviorIrLoadConst loadConst => $"{loadConst.Target} = LoadConst {loadConst.Value}",
             BehaviorIrLoadEnum loadEnum => $"{loadEnum.Target} = LoadEnum {loadEnum.Value}",
-            BehaviorIrLoadField loadField => $"{loadField.Target} = LoadField {loadField.FieldName}",
+            BehaviorIrLoadField loadField => $"{loadField.Target} = LoadField #{loadField.FieldId} {loadField.FieldName}",
             BehaviorIrLoadLocal loadLocal => $"{loadLocal.Target} = LoadLocal {loadLocal.LocalName}",
             BehaviorIrLoadSelf loadSelf => $"{loadSelf.Target} = LoadSelf",
             BehaviorIrLoadMember loadMember => $"{loadMember.Target} = LoadMember {loadMember.Member}",
@@ -58,7 +58,7 @@ public static class BehaviorIrReporter
             foreach (var field in module.Fields)
             {
                 var initializer = field.InitialValue is null ? string.Empty : $" = {field.InitialValue}";
-                writer.WriteLine($"  {field.Name} : {field.Type}{initializer}");
+                writer.WriteLine($"  #{field.FieldId} {field.Name} : {field.Type}{initializer}");
             }
         }
 

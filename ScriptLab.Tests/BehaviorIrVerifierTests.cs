@@ -15,7 +15,7 @@ public sealed class BehaviorIrVerifierTests
             downKeys: new HashSet<string>(StringComparer.Ordinal) { "Key.W" });
 
         var call = Assert.Single(result.Calls);
-        Assert.Equal("asharia.transform.translate", call.FunctionId);
+        Assert.Equal(new FunctionId("asharia.transform.translate"), call.FunctionId);
         Assert.Equal("Self", call.Arguments[0]);
 
         var offset = Assert.IsType<BehaviorIrVerificationVec3>(call.Arguments[1]);

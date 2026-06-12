@@ -1102,7 +1102,7 @@ public sealed class ScriptDebugSession
                     field.Value,
                     field.BehaviorId,
                     field.EntityId,
-                    field.FieldId,
+                    field.FieldId.ToString(),
                     field.Accessibility,
                     field.Serialization,
                     Writable: true))

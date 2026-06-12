@@ -197,7 +197,7 @@ public static class BlueprintGraphProjector
             {
                 BehaviorIrLoadEnum loadEnum => CreateNode("Enum", loadEnum.Value, loadEnum),
                 BehaviorIrLoadConst loadConst => CreateNode("Const", loadConst.Value, loadConst),
-                BehaviorIrLoadField loadField => CreateNode("GetField", loadField.FieldName, loadField),
+                BehaviorIrLoadField loadField => CreateNode("GetField", $"#{loadField.FieldId} {loadField.FieldName}", loadField),
                 BehaviorIrLoadLocal loadLocal => CreateNode("GetLocal", loadLocal.LocalName, loadLocal),
                 BehaviorIrLoadSelf loadSelf => CreateNode("Self", "Self", loadSelf),
                 BehaviorIrLoadMember loadMember => CreateNode("GetMember", loadMember.Member, loadMember),
@@ -210,7 +210,7 @@ public static class BlueprintGraphProjector
 
         private BlueprintGraphNode CreateCallNode(BehaviorIrCallFunction call)
         {
-            return CreateNode("Call", call.FunctionId, call);
+            return CreateNode("Call", call.FunctionId.ToString(), call);
         }
 
         private bool TryProjectParameterLoad(BehaviorIrValueInstruction instruction)

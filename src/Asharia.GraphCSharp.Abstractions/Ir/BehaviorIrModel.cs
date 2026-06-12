@@ -5,7 +5,7 @@ public sealed record BehaviorIrModule(
     IReadOnlyList<BehaviorIrField> Fields,
     IReadOnlyList<BehaviorIrFunction> Functions);
 
-public sealed record BehaviorIrField(string Name, string Type, string? InitialValue);
+public sealed record BehaviorIrField(FieldId FieldId, string Name, string Type, string? InitialValue);
 
 public sealed record BehaviorIrFunction(
     string Name,
@@ -46,7 +46,7 @@ public sealed record BehaviorIrLoadConst(string Target, string Value, BehaviorSo
 public sealed record BehaviorIrLoadEnum(string Target, string Value, BehaviorSourceSpan Source)
     : BehaviorIrValueInstruction(Target, Source);
 
-public sealed record BehaviorIrLoadField(string Target, string FieldName, BehaviorSourceSpan Source)
+public sealed record BehaviorIrLoadField(string Target, FieldId FieldId, string FieldName, BehaviorSourceSpan Source)
     : BehaviorIrValueInstruction(Target, Source);
 
 public sealed record BehaviorIrLoadLocal(string Target, string LocalName, BehaviorSourceSpan Source)
@@ -75,7 +75,7 @@ public sealed record BehaviorIrMakeStruct(
 
 public sealed record BehaviorIrCallFunction(
     string? Target,
-    string FunctionId,
+    FunctionId FunctionId,
     IReadOnlyList<string> Arguments,
     BehaviorSourceSpan Source)
     : BehaviorIrInstruction(Source);

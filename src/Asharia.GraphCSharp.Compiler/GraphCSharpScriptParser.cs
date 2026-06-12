@@ -87,7 +87,12 @@ public static class GraphCSharpScriptParser
                     : "public";
 
                 return field.Declaration.Variables.Select(variable =>
-                    new ScriptFieldSummary(variable.Identifier.ValueText, type, accessibility, serialization));
+                    new ScriptFieldSummary(
+                        variable.Identifier.ValueText,
+                        TryGetStableFieldId(field.AttributeLists, out var fieldId) ? fieldId : null,
+                        type,
+                        accessibility,
+                        serialization));
             })
             .ToArray();
     }
@@ -298,6 +303,24 @@ public static class GraphCSharpScriptParser
         return HasAttribute(attributeLists, "Field") || HasAttribute(attributeLists, "SerializeField");
     }
 
+    private static bool TryGetStableFieldId(SyntaxList<AttributeListSyntax> attributeLists, out FieldId fieldId)
+    {
+        fieldId = default;
+        var fieldAttribute = attributeLists
+            .SelectMany(list => list.Attributes)
+            .FirstOrDefault(attribute => AttributeMatches(attribute, "Field"));
+        var expression = fieldAttribute?.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
+        if (expression is LiteralExpressionSyntax literal &&
+            literal.IsKind(SyntaxKind.NumericLiteralExpression) &&
+            literal.Token.Value is int id)
+        {
+            fieldId = new FieldId(id);
+            return true;
+        }
+
+        return false;
+    }
+
     private static string GetAccessibility(SyntaxTokenList modifiers)
     {
         if (modifiers.Any(SyntaxKind.PublicKeyword))
@@ -397,6 +420,7 @@ public sealed record ScriptBehaviorSummary(
 
 public sealed record ScriptFieldSummary(
     string Name,
+    FieldId? FieldId,
     string Type,
     string Accessibility,
     string Serialization);

@@ -2,8 +2,9 @@ using Asharia.Behavior;
 
 namespace com.game;
 
-public class DebugWatch : BehaviorComponent
+[Behavior("com.game.DebugWatch")] public sealed partial class DebugWatch : BehaviorComponent
 {
+    [Field(1)]
     public float Speed = 4.0f;
 
     protected override void Update(float delta)

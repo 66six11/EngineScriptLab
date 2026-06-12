@@ -43,6 +43,7 @@ public static class GraphCSharpRuleSet
     public const string UnsupportedSyntaxId = "AGC0001";
     public const string UnsupportedExpressionId = "AGC0002";
     public const string UnregisteredFunctionCallId = "AGC0003";
+    public const string MissingStableFieldId = "AGC0004";
     public const string UnsupportedLoopId = "AGC0007";
     public const string UnsupportedTypeId = "AGC0008";
     public const string UnsupportedAllocationId = "AGC0009";
@@ -72,6 +73,7 @@ public static class GraphCSharpRuleSet
         new(UnsupportedSyntaxId, "Unsupported Graph C# syntax"),
         new(UnsupportedExpressionId, "Unsupported Graph C# expression"),
         new(UnregisteredFunctionCallId, "Unregistered Graph C# function call"),
+        new(MissingStableFieldId, "Missing stable Graph C# field id"),
         new(UnsupportedLoopId, "Unsupported Graph C# loop"),
         new(UnsupportedTypeId, "Unsupported Graph C# type"),
         new(UnsupportedAllocationId, "Unsupported Graph C# allocation")
@@ -256,6 +258,11 @@ public static class GraphCSharpRuleSet
     public static string GetUnsupportedStaticStateMessage(string fieldName)
     {
         return $"Static field '{fieldName}' is not supported by Graph C# v0 because graph scripts cannot own global mutable state.";
+    }
+
+    public static string GetMissingStableFieldIdMessage(string fieldName)
+    {
+        return $"Field '{fieldName}' must declare a stable Graph C# field id with [Field(id)].";
     }
 
     private static bool ContainsSimpleName(string[] names, string typeName)

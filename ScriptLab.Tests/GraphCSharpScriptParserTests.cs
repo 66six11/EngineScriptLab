@@ -16,14 +16,15 @@ public sealed class GraphCSharpScriptParserTests
         var behavior = result.Behavior;
         Assert.Equal("PlayerMove", behavior.Name);
         Assert.Equal("com.game.PlayerMove", behavior.Id);
-        Assert.Equal("default", behavior.IdSource);
+        Assert.Equal("explicit", behavior.IdSource);
         Assert.Empty(behavior.FormerlyBehaviorIds);
 
         var field = Assert.Single(behavior.Fields);
         Assert.Equal("Speed", field.Name);
+        Assert.Equal(new FieldId(1), field.FieldId);
         Assert.Equal("float", field.Type);
         Assert.Equal("public", field.Accessibility);
-        Assert.Equal("public", field.Serialization);
+        Assert.Equal("explicit", field.Serialization);
 
         var method = Assert.Single(behavior.Methods);
         Assert.Equal("Update", method.Name);
@@ -113,31 +114,23 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
-    public void ParseText_WhenPublicFieldHasNoAttribute_ReturnsFieldSummary()
+    public void ParseText_WhenPublicFieldHasNoStableFieldId_ReturnsAgc0004()
     {
         var result = GraphCSharpScriptParser.ParseText(
             BuildScriptWithFields("public float Speed = 4.0f;"),
             "PublicField.ash.cs");
 
-        Assert.False(result.HasErrors);
+        Assert.True(result.HasErrors);
         Assert.False(result.HasSyntaxErrors);
-
-        Assert.NotNull(result.Behavior);
-
-        var field = Assert.Single(result.Behavior.Fields);
-        Assert.Equal("Speed", field.Name);
-        Assert.Equal("public", field.Accessibility);
-        Assert.Equal("public", field.Serialization);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Id == "AGC0004");
     }
 
-    [Theory]
-    [InlineData("[Field]")]
-    [InlineData("[SerializeField]")]
-    public void ParseText_WhenPrivateFieldHasSerializationAttribute_ReturnsFieldSummary(string attribute)
+    [Fact]
+    public void ParseText_WhenPrivateFieldHasStableFieldId_ReturnsFieldSummary()
     {
         var result = GraphCSharpScriptParser.ParseText(
-            BuildScriptWithFields($$"""
-                {{attribute}}
+            BuildScriptWithFields("""
+                [Field(1)]
                 private float speed = 4.0f;
                 """),
             "PrivateSerializedField.ash.cs");
@@ -149,8 +142,26 @@ public sealed class GraphCSharpScriptParserTests
 
         var field = Assert.Single(result.Behavior.Fields);
         Assert.Equal("speed", field.Name);
+        Assert.Equal(new FieldId(1), field.FieldId);
         Assert.Equal("private", field.Accessibility);
         Assert.Equal("explicit", field.Serialization);
+    }
+
+    [Theory]
+    [InlineData("[Field]")]
+    [InlineData("[SerializeField]")]
+    public void ParseText_WhenSerializedFieldHasNoStableFieldId_ReturnsAgc0004(string attribute)
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScriptWithFields($$"""
+                {{attribute}}
+                private float speed = 4.0f;
+                """),
+            "MissingFieldId.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Id == "AGC0004");
     }
 
     [Fact]
@@ -178,6 +189,7 @@ public sealed class GraphCSharpScriptParserTests
             [Behavior("com.game.CustomMove")]
             public class PlayerMove : BehaviorComponent
             {
+                [Field(1)]
                 public float Speed = 4.0f;
             }
             """,
@@ -202,6 +214,7 @@ public sealed class GraphCSharpScriptParserTests
             [FormerlyBehavior("com.game.LegacyMove")]
             public class PlayerMove : BehaviorComponent
             {
+                [Field(1)]
                 public float Speed = 4.0f;
             }
             """,
@@ -241,6 +254,7 @@ public sealed class GraphCSharpScriptParserTests
             [Behavior("com.game.Unsupported")]
             public sealed partial class Unsupported : BehaviorComponent
             {
+                [Field(1)]
                 public float Speed = 4.0f;
 
                 protected override void Update(float delta)

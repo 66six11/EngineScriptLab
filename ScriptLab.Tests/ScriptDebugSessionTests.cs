@@ -346,7 +346,7 @@ public sealed class ScriptDebugSessionTests
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
         var host = DebugScriptHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
-        host.SetFieldValue(101, "com.game.PlayerMove", "Speed", "8.5");
+        host.SetFieldValue(101, "com.game.PlayerMove", "1", "8.5");
         var session = CreateSession(emit);
         var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: true);
         var backend = new FakeFrameVariableBackend(new ScriptFrameVariableSnapshot(
@@ -372,7 +372,7 @@ public sealed class ScriptDebugSessionTests
 
         var inspector = Assert.Single(snapshot.Scopes, scope => scope.Kind == ScriptDebugScopeKind.Inspector);
         Assert.True(inspector.Available);
-        var speed = Assert.Single(inspector.Variables, variable => variable.FieldId == "Speed");
+        var speed = Assert.Single(inspector.Variables, variable => variable.FieldId == "1");
         Assert.Equal("Speed", speed.Name);
         Assert.Equal("float", speed.Type);
         Assert.Equal("8.5", speed.DisplayValue);
@@ -380,7 +380,7 @@ public sealed class ScriptDebugSessionTests
         Assert.Equal("com.game.PlayerMove", speed.BehaviorId);
         Assert.Equal(101, speed.EntityId);
         Assert.Equal("public", speed.Accessibility);
-        Assert.Equal("public", speed.Serialization);
+        Assert.Equal("explicit", speed.Serialization);
         Assert.True(speed.Writable);
     }
 
@@ -527,7 +527,7 @@ public sealed class ScriptDebugSessionTests
         host.SetWatchEnabled(true);
         host.ClearProbeEvents();
         instance.InvokeUpdate(0.016f);
-        instance.SetFieldValue("Speed", 8.0f);
+        instance.SetFieldValue("1", 8.0f);
         instance.InvokeUpdate(0.016f);
 
         var variables = session.RecordWatchValues(host.GetProbeEvents());

@@ -46,7 +46,7 @@ public sealed class ScriptDebugLoopTests
 
         Assert.NotNull(result.PausedSnapshot);
         var inspector = Assert.Single(result.PausedSnapshot.Scopes, scope => scope.Kind == ScriptDebugScopeKind.Inspector);
-        var speed = Assert.Single(inspector.Variables, variable => variable.FieldId == "Speed");
+        var speed = Assert.Single(inspector.Variables, variable => variable.FieldId == "1");
         Assert.Equal("4", speed.DisplayValue);
         Assert.Equal(4.0f, speed.RawValue);
 

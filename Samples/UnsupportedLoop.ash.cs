@@ -2,8 +2,9 @@ using Asharia.Behavior;
 
 namespace com.game;
 
-public class UnsupportedLoop : BehaviorComponent
+[Behavior("com.game.UnsupportedLoop")] public sealed partial class UnsupportedLoop : BehaviorComponent
 {
+    [Field(1)]
     public float Speed = 4.0f;
 
     protected override void Update(float delta)

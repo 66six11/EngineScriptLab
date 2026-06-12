@@ -23,7 +23,7 @@ public sealed class BlueprintGraphProjectorTests
         var keyNode = FindNode(function, "Enum", "Key.W");
         var keyDownNode = FindNode(function, "Call", "asharia.input.keyDown");
         var branchNode = FindNode(function, "Branch", "Branch");
-        var speedNode = FindNode(function, "GetField", "Speed");
+        var speedNode = FindNode(function, "GetField", "#1 Speed");
         var multiplyNode = FindNode(function, "BinaryOp", "Multiply");
         var vec3Node = FindNode(function, "MakeStruct", "Vec3");
         var translateNode = FindNode(function, "Call", "asharia.transform.translate");

@@ -140,8 +140,24 @@ public static class GraphCSharpRestrictionAnalyzer
         FieldDeclarationSyntax fieldDeclaration,
         ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
     {
-        if (!fieldDeclaration.Modifiers.Any(SyntaxKind.StaticKeyword) ||
-            fieldDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword))
+        if (fieldDeclaration.Modifiers.Any(SyntaxKind.StaticKeyword) &&
+            !fieldDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword))
+        {
+            foreach (var variable in fieldDeclaration.Declaration.Variables)
+            {
+                diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
+                    variable,
+                    GraphCSharpRuleSet.UnsupportedSyntaxId,
+                    GraphCSharpRuleSet.GetUnsupportedStaticStateMessage(variable.Identifier.ValueText)));
+            }
+        }
+
+        if (!IsBehaviorField(fieldDeclaration))
+        {
+            return;
+        }
+
+        if (TryGetStableFieldId(fieldDeclaration.AttributeLists, out _))
         {
             return;
         }
@@ -150,8 +166,8 @@ public static class GraphCSharpRestrictionAnalyzer
         {
             diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
                 variable,
-                GraphCSharpRuleSet.UnsupportedSyntaxId,
-                GraphCSharpRuleSet.GetUnsupportedStaticStateMessage(variable.Identifier.ValueText)));
+                GraphCSharpRuleSet.MissingStableFieldId,
+                GraphCSharpRuleSet.GetMissingStableFieldIdMessage(variable.Identifier.ValueText)));
         }
     }
 
@@ -175,6 +191,62 @@ public static class GraphCSharpRestrictionAnalyzer
     {
         return memberAccess.Expression is TypeOfExpressionSyntax &&
             memberAccess.Name.Identifier.ValueText.StartsWith("Get", StringComparison.Ordinal);
+    }
+
+    private static bool IsBehaviorField(FieldDeclarationSyntax field)
+    {
+        return IsPublicInstanceField(field) ||
+            HasAttribute(field.AttributeLists, "Field") ||
+            HasAttribute(field.AttributeLists, "SerializeField");
+    }
+
+    private static bool IsPublicInstanceField(FieldDeclarationSyntax field)
+    {
+        return field.Modifiers.Any(SyntaxKind.PublicKeyword) &&
+            !field.Modifiers.Any(SyntaxKind.StaticKeyword) &&
+            !field.Modifiers.Any(SyntaxKind.ConstKeyword);
+    }
+
+    private static bool TryGetStableFieldId(SyntaxList<AttributeListSyntax> attributeLists, out int fieldId)
+    {
+        fieldId = 0;
+        var fieldAttribute = attributeLists
+            .SelectMany(list => list.Attributes)
+            .FirstOrDefault(attribute => AttributeMatches(attribute, "Field"));
+        var expression = fieldAttribute?.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
+        if (expression is LiteralExpressionSyntax literal &&
+            literal.IsKind(SyntaxKind.NumericLiteralExpression) &&
+            literal.Token.Value is int id)
+        {
+            fieldId = id;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasAttribute(SyntaxList<AttributeListSyntax> attributeLists, string attributeName)
+    {
+        return attributeLists
+            .SelectMany(list => list.Attributes)
+            .Any(attribute => AttributeMatches(attribute, attributeName));
+    }
+
+    private static bool AttributeMatches(AttributeSyntax attribute, string expectedName)
+    {
+        var actualName = GetSimpleAttributeName(attribute.Name);
+        return actualName == expectedName || actualName == $"{expectedName}Attribute";
+    }
+
+    private static string GetSimpleAttributeName(NameSyntax name)
+    {
+        return name switch
+        {
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            QualifiedNameSyntax qualified => qualified.Right.Identifier.ValueText,
+            AliasQualifiedNameSyntax aliasQualified => aliasQualified.Name.Identifier.ValueText,
+            _ => name.ToString()
+        };
     }
 
     private static string GetTypeName(TypeSyntax type)

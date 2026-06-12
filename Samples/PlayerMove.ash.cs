@@ -2,9 +2,9 @@ using Asharia.Behavior;
 
 namespace com.game;
 
-public class PlayerMove : BehaviorComponent
+[Behavior("com.game.PlayerMove")] public sealed partial class PlayerMove : BehaviorComponent
 {
-    [Range(0f, 20f)]
+    [Field(1), Expose, Range(0f, 20f)]
     public float Speed = 4.0f;
 
     protected override void Update(float delta)

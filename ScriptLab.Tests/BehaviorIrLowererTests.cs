@@ -12,6 +12,7 @@ public sealed class BehaviorIrLowererTests
         Assert.Equal("com.game.PlayerMove", module.BehaviorId);
 
         var field = Assert.Single(module.Fields);
+        Assert.Equal(new FieldId(1), field.FieldId);
         Assert.Equal("Speed", field.Name);
         Assert.Equal("float", field.Type);
         Assert.Equal("4.0f", field.InitialValue);
@@ -32,7 +33,7 @@ public sealed class BehaviorIrLowererTests
         Assert.Contains("%0 = LoadEnum Key.W", instructions);
         Assert.Contains("%1 = Call asharia.input.keyDown(%0)", instructions);
         Assert.Contains("Branch %1 then then_0 else exit_1", instructions);
-        Assert.Contains("%5 = LoadField Speed", instructions);
+        Assert.Contains("%5 = LoadField #1 Speed", instructions);
         Assert.Contains("%6 = LoadLocal delta", instructions);
         Assert.Contains("%7 = BinaryOp Multiply %5, %6", instructions);
         Assert.Contains("%8 = MakeStruct Vec3(%3, %4, %7)", instructions);
@@ -41,7 +42,7 @@ public sealed class BehaviorIrLowererTests
         var callInstruction = function.Blocks
             .SelectMany(block => block.Instructions)
             .OfType<BehaviorIrCallFunction>()
-            .Single(call => call.FunctionId == "asharia.transform.translate");
+            .Single(call => call.FunctionId == new FunctionId("asharia.transform.translate"));
         Assert.Equal("PlayerMove.ash.cs", callInstruction.Source.FileName);
         Assert.True(callInstruction.Source.Line > 0);
         Assert.True(callInstruction.Source.Column > 0);
@@ -91,7 +92,7 @@ public sealed class BehaviorIrLowererTests
             0.016f,
             new HashSet<string>(StringComparer.Ordinal));
         var call = Assert.Single(result.Calls);
-        Assert.Equal("asharia.transform.translate", call.FunctionId);
+        Assert.Equal(new FunctionId("asharia.transform.translate"), call.FunctionId);
         Assert.Equal(new BehaviorIrVerificationVec3(0f, 0f, 2f), call.Arguments[1]);
     }
 

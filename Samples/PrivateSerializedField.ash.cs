@@ -2,9 +2,9 @@ using Asharia.Behavior;
 
 namespace com.game;
 
-public class PrivateSerializedField : BehaviorComponent
+[Behavior("com.game.PrivateSerializedField")] public sealed partial class PrivateSerializedField : BehaviorComponent
 {
-    [Field]
+    [Field(1)]
     private float speed = 4.0f;
 
     protected override void Update(float delta)
