@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 
-namespace ScriptLab;
+using ScriptLab;
+
+namespace ScriptLab.Debug.Dap;
 
 public sealed record DapBreakpointBackendCapabilities(
     bool SupportsConditionalBreakpoints = false,

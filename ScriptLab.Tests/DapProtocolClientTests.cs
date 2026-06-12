@@ -1,3 +1,4 @@
+using ScriptLab.Debug.Dap;
 using ScriptLab;
 using System.Text;
 using System.Text.Json.Nodes;

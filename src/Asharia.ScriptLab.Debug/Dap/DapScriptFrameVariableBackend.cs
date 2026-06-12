@@ -1,4 +1,6 @@
-namespace ScriptLab;
+using ScriptLab;
+
+namespace ScriptLab.Debug.Dap;
 
 public sealed class DapScriptFrameVariableBackend : IScriptFrameVariableBackend
 {

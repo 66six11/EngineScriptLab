@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 
-namespace ScriptLab;
+namespace ScriptLab.Debug.Dap;
 
 public interface IDapRequestClient
 {

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace ScriptLab;
+namespace ScriptLab.Debug.Dap;
 
 public sealed class DapAdapterProcess : IDisposable
 {

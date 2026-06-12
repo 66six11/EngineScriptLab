@@ -1,3 +1,4 @@
+using ScriptLab.Debug.Dap;
 using ScriptLab;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
