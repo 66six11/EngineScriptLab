@@ -1,4 +1,5 @@
 using ScriptLab;
+using ScriptLab.GraphCSharp;
 
 namespace ScriptLab.Tests;
 
@@ -48,6 +49,57 @@ public sealed class GraphCSharpScriptParserTests
         Assert.True(result.HasErrors);
         Assert.True(result.HasSyntaxErrors);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Severity == "Error");
+        Assert.All(result.Diagnostics, diagnostic =>
+            Assert.Equal(GraphCSharpAnalysisStage.CSharpSyntax, diagnostic.Stage));
+    }
+
+    [Fact]
+    public void ParseText_WhenGraphCSharpDiagnosticsAreReported_AssignsPipelineStages()
+    {
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScript("var predicate = () => true;"),
+                "SyntaxRestriction.ash.cs"),
+            "AGC0001",
+            GraphCSharpAnalysisStage.SyntaxRestriction);
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScript("""Debug.Log("move");"""),
+                "SemanticBinding.ash.cs"),
+            "AGC0003",
+            GraphCSharpAnalysisStage.SemanticBinding);
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScriptWithFields("public float Speed = 4.0f;"),
+                "MissingFieldId.ash.cs"),
+            "AGC0004",
+            GraphCSharpAnalysisStage.SemanticBinding);
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScript("Transform.Translate(Self, 1);"),
+                "TypeCheck.ash.cs"),
+            "AGC0008",
+            GraphCSharpAnalysisStage.TypeCheck);
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScriptWithMethod(
+                    "Start",
+                    "if (Input.KeyDown(Key.W)) { return; }"),
+                "ContextCheck.ash.cs"),
+            "AGC0005",
+            GraphCSharpAnalysisStage.ContextCheck);
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScript("var text = Transform.Translate(Self, new Vec3(0f, 0f, 1f)).ToString();"),
+                "EffectCheck.ash.cs"),
+            "AGC0006",
+            GraphCSharpAnalysisStage.EffectCheck);
+        AssertDiagnosticStage(
+            GraphCSharpScriptParser.ParseText(
+                BuildScriptWithLineDirective(),
+                "SourceMapInvariant.ash.cs"),
+            "AGC0010",
+            GraphCSharpAnalysisStage.SourceMapInvariant);
     }
 
     [Theory]
@@ -442,24 +494,7 @@ public sealed class GraphCSharpScriptParserTests
     public void ParseText_WhenLineDirectiveIsUsed_ReturnsAgc0010()
     {
         var result = GraphCSharpScriptParser.ParseText(
-            """
-            using Asharia.Behavior;
-
-            namespace com.game;
-
-            [Behavior("com.game.HiddenLine")]
-            public sealed partial class HiddenLine : BehaviorComponent
-            {
-                [Field(1)]
-                public float Speed = 4.0f;
-
-            #line hidden
-                protected override void Update(float delta)
-                {
-                    return;
-                }
-            }
-            """,
+            BuildScriptWithLineDirective(),
             "HiddenLine.ash.cs");
 
         Assert.True(result.HasErrors);
@@ -682,5 +717,37 @@ public sealed class GraphCSharpScriptParserTests
                 }
             }
             """;
+    }
+
+    private static string BuildScriptWithLineDirective()
+    {
+        return """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            [Behavior("com.game.HiddenLine")]
+            public sealed partial class HiddenLine : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+            #line hidden
+                protected override void Update(float delta)
+                {
+                    return;
+                }
+            }
+            """;
+    }
+
+    private static void AssertDiagnosticStage(
+        ScriptParseResult result,
+        string diagnosticId,
+        string expectedStage)
+    {
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == diagnosticId &&
+            diagnostic.Stage == expectedStage);
     }
 }

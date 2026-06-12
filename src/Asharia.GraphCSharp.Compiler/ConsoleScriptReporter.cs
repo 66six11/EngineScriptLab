@@ -65,7 +65,7 @@ public static class ConsoleScriptReporter
         foreach (var diagnostic in diagnosticList)
         {
             writer.WriteLine(
-                $"  {diagnostic.Id} {diagnostic.Severity}: {diagnostic.Message} ({diagnostic.FileName}:{diagnostic.Line}:{diagnostic.Column})");
+                $"  {diagnostic.Id} {diagnostic.Stage} {diagnostic.Severity}: {diagnostic.Message} ({diagnostic.FileName}:{diagnostic.Line}:{diagnostic.Column})");
         }
     }
 

@@ -38,6 +38,7 @@ public static class GraphCSharpSubsetAnalyzer
                     Report(
                         trivia.GetLocation(),
                         GraphCSharpRuleSet.SourceMapUnavailableId,
+                        GraphCSharpAnalysisStage.SourceMapInvariant,
                         GraphCSharpRuleSet.GetSourceMapUnavailableMessage(
                             "#line directives are not supported because graph nodes must map to the original script source."));
                 }
@@ -64,16 +65,18 @@ public static class GraphCSharpSubsetAnalyzer
             Report(
                 diagnostic.Node.GetLocation(),
                 diagnostic.Id,
+                diagnostic.Stage,
                 diagnostic.Message);
         }
 
-        private void Report(Location location, string id, string message)
+        private void Report(Location location, string id, string stage, string message)
         {
             var span = location.GetLineSpan();
             var start = span.StartLinePosition;
 
             diagnostics.Add(new ScriptDiagnostic(
                 id,
+                stage,
                 GraphCSharpRuleSet.ErrorSeverity,
                 message,
                 Path.GetFileName(span.Path),

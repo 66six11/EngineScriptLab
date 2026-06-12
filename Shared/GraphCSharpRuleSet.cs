@@ -36,6 +36,17 @@ public sealed class GraphCSharpSyntaxRule
     public string Message { get; }
 }
 
+public static class GraphCSharpAnalysisStage
+{
+    public const string CSharpSyntax = "csharpSyntax";
+    public const string SyntaxRestriction = "syntaxRestriction";
+    public const string SemanticBinding = "semanticBinding";
+    public const string TypeCheck = "typeCheck";
+    public const string EffectCheck = "effectCheck";
+    public const string ContextCheck = "contextCheck";
+    public const string SourceMapInvariant = "sourceMapInvariant";
+}
+
 public static class GraphCSharpRuleSet
 {
     public const string Category = "GraphCSharp";

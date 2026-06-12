@@ -9,11 +9,16 @@ namespace ScriptLab.GraphCSharp;
 
 public sealed class GraphCSharpRestrictionDiagnostic
 {
-    public GraphCSharpRestrictionDiagnostic(SyntaxNode node, string id, string message)
+    public GraphCSharpRestrictionDiagnostic(
+        SyntaxNode node,
+        string id,
+        string message,
+        string stage = GraphCSharpAnalysisStage.SyntaxRestriction)
     {
         Node = node;
         Id = id;
         Message = message;
+        Stage = stage;
     }
 
     public SyntaxNode Node { get; }
@@ -21,6 +26,8 @@ public sealed class GraphCSharpRestrictionDiagnostic
     public string Id { get; }
 
     public string Message { get; }
+
+    public string Stage { get; }
 }
 
 public static class GraphCSharpRestrictionAnalyzer
@@ -98,7 +105,8 @@ public static class GraphCSharpRestrictionAnalyzer
             diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
                 invocation,
                 GraphCSharpRuleSet.UnsupportedExpressionId,
-                GraphCSharpRuleSet.GetUnsupportedReflectionMessage(memberAccess.ToString())));
+                GraphCSharpRuleSet.GetUnsupportedReflectionMessage(memberAccess.ToString()),
+                GraphCSharpAnalysisStage.SyntaxRestriction));
             return;
         }
 
@@ -122,7 +130,8 @@ public static class GraphCSharpRestrictionAnalyzer
         diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
             invocation,
             GraphCSharpRuleSet.UnregisteredFunctionCallId,
-            GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName)));
+            GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName),
+            GraphCSharpAnalysisStage.SemanticBinding));
     }
 
     private static void AnalyzeType(
@@ -143,7 +152,8 @@ public static class GraphCSharpRestrictionAnalyzer
         diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
             type,
             GraphCSharpRuleSet.UnsupportedTypeId,
-            GraphCSharpRuleSet.GetUnsupportedTypeMessage(typeName)));
+            GraphCSharpRuleSet.GetUnsupportedTypeMessage(typeName),
+            GraphCSharpAnalysisStage.TypeCheck));
     }
 
     private static void AnalyzeFieldDeclaration(
@@ -159,7 +169,8 @@ public static class GraphCSharpRestrictionAnalyzer
                 diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
                     variable,
                     GraphCSharpRuleSet.UnsupportedSyntaxId,
-                    GraphCSharpRuleSet.GetUnsupportedStaticStateMessage(variable.Identifier.ValueText)));
+                    GraphCSharpRuleSet.GetUnsupportedStaticStateMessage(variable.Identifier.ValueText),
+                    GraphCSharpAnalysisStage.SyntaxRestriction));
             }
         }
 
@@ -185,7 +196,8 @@ public static class GraphCSharpRestrictionAnalyzer
             diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
                 variable,
                 GraphCSharpRuleSet.MissingStableFieldId,
-                GraphCSharpRuleSet.GetMissingStableFieldIdMessage(variable.Identifier.ValueText)));
+                GraphCSharpRuleSet.GetMissingStableFieldIdMessage(variable.Identifier.ValueText),
+                GraphCSharpAnalysisStage.SemanticBinding));
         }
 
         foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeBehaviorFieldDeclaration(
@@ -212,7 +224,8 @@ public static class GraphCSharpRestrictionAnalyzer
         diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
             objectCreation,
             GraphCSharpRuleSet.UnsupportedAllocationId,
-            GraphCSharpRuleSet.GetUnsupportedAllocationMessage(typeName)));
+            GraphCSharpRuleSet.GetUnsupportedAllocationMessage(typeName),
+            GraphCSharpAnalysisStage.SyntaxRestriction));
     }
 
     private static string GetObjectCreationTypeName(

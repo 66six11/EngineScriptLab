@@ -28,7 +28,8 @@ public static class GraphCSharpSemanticAnalyzer
             diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
                 variable,
                 GraphCSharpRuleSet.UnsupportedTypeId,
-                GraphCSharpRuleSet.GetUnsupportedTypeMessage(typeName)));
+                GraphCSharpRuleSet.GetUnsupportedTypeMessage(typeName),
+                GraphCSharpAnalysisStage.TypeCheck));
         }
 
         return diagnostics;
@@ -83,7 +84,8 @@ public static class GraphCSharpSemanticAnalyzer
             GraphCSharpRuleSet.IllegalContextCallId,
             GraphCSharpRuleSet.GetIllegalContextCallMessage(
                 binding.CSharpName,
-                GetScriptContextName(context))));
+                GetScriptContextName(context)),
+            GraphCSharpAnalysisStage.ContextCheck));
     }
 
     private static void AnalyzeFunctionSideEffects(
@@ -100,7 +102,8 @@ public static class GraphCSharpSemanticAnalyzer
         diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
             invocation,
             GraphCSharpRuleSet.HiddenSideEffectId,
-            GraphCSharpRuleSet.GetHiddenSideEffectMessage(binding.CSharpName)));
+            GraphCSharpRuleSet.GetHiddenSideEffectMessage(binding.CSharpName),
+            GraphCSharpAnalysisStage.EffectCheck));
     }
 
     private static void AnalyzeFunctionArguments(
@@ -118,7 +121,8 @@ public static class GraphCSharpSemanticAnalyzer
                 GraphCSharpRuleSet.GetInvalidFunctionArgumentCountMessage(
                     binding.CSharpName,
                     binding.Parameters.Count,
-                    arguments.Count)));
+                    arguments.Count),
+                GraphCSharpAnalysisStage.TypeCheck));
             return;
         }
 
@@ -154,7 +158,8 @@ public static class GraphCSharpSemanticAnalyzer
                     binding.CSharpName,
                     index + 1,
                     expectedType,
-                    actualTypeName)));
+                    actualTypeName),
+                GraphCSharpAnalysisStage.TypeCheck));
         }
     }
 

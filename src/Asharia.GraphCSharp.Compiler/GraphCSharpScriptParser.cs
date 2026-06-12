@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using ScriptLab.GraphCSharp;
 
 namespace ScriptLab;
 
@@ -43,6 +44,7 @@ public static class GraphCSharpScriptParser
 
         return new ScriptDiagnostic(
             diagnostic.Id,
+            GraphCSharpAnalysisStage.CSharpSyntax,
             diagnostic.Severity.ToString(),
             diagnostic.GetMessage(),
             Path.GetFileName(span.Path),
@@ -421,6 +423,7 @@ public sealed record ScriptParseResult(
 
 public sealed record ScriptDiagnostic(
     string Id,
+    string Stage,
     string Severity,
     string Message,
     string FileName,
