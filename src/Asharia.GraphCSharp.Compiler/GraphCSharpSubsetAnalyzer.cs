@@ -7,43 +7,45 @@ namespace ScriptLab;
 
 public static class GraphCSharpSubsetAnalyzer
 {
+    private static readonly string[] NodeAnalysisStages =
+    {
+        GraphCSharpAnalysisStage.SyntaxRestriction,
+        GraphCSharpAnalysisStage.SemanticBinding,
+        GraphCSharpAnalysisStage.TypeCheck,
+        GraphCSharpAnalysisStage.EffectCheck,
+        GraphCSharpAnalysisStage.ContextCheck
+    };
+
     public static IReadOnlyList<ScriptDiagnostic> Analyze(SyntaxTree tree)
     {
         var root = tree.GetCompilationUnitRoot();
-        var walker = new Walker(GraphCSharpSemanticModelFactory.CreateSemanticModel(tree));
-        walker.Visit(root);
-        walker.ReportSourceMapDirectives(root);
-        return walker.Diagnostics;
+        var semanticModel = GraphCSharpSemanticModelFactory.CreateSemanticModel(tree);
+        var diagnostics = new List<ScriptDiagnostic>();
+
+        foreach (var stage in NodeAnalysisStages)
+        {
+            var walker = new NodeStageWalker(semanticModel, stage);
+            walker.Visit(root);
+            diagnostics.AddRange(walker.Diagnostics);
+        }
+
+        diagnostics.AddRange(SourceMapInvariantPass.Analyze(root));
+        return diagnostics;
     }
 
-    private sealed class Walker : CSharpSyntaxWalker
+    private sealed class NodeStageWalker : CSharpSyntaxWalker
     {
         private readonly SemanticModel semanticModel;
+        private readonly string stage;
         private readonly List<ScriptDiagnostic> diagnostics = new();
 
-        public Walker(SemanticModel semanticModel)
+        public NodeStageWalker(SemanticModel semanticModel, string stage)
         {
             this.semanticModel = semanticModel;
+            this.stage = stage;
         }
 
         public IReadOnlyList<ScriptDiagnostic> Diagnostics => diagnostics;
-
-        public void ReportSourceMapDirectives(SyntaxNode root)
-        {
-            foreach (var trivia in root.DescendantTrivia(descendIntoTrivia: true))
-            {
-                if (trivia.IsKind(SyntaxKind.LineDirectiveTrivia) ||
-                    trivia.IsKind(SyntaxKind.LineSpanDirectiveTrivia))
-                {
-                    Report(
-                        trivia.GetLocation(),
-                        GraphCSharpRuleSet.SourceMapUnavailableId,
-                        GraphCSharpAnalysisStage.SourceMapInvariant,
-                        GraphCSharpRuleSet.GetSourceMapUnavailableMessage(
-                            "#line directives are not supported because graph nodes must map to the original script source."));
-                }
-            }
-        }
 
         public override void Visit(SyntaxNode? node)
         {
@@ -54,34 +56,55 @@ public static class GraphCSharpSubsetAnalyzer
 
             foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(node, semanticModel))
             {
-                Report(diagnostic);
+                if (diagnostic.Stage == stage)
+                {
+                    diagnostics.Add(CreateDiagnostic(
+                        diagnostic.Node.GetLocation(),
+                        diagnostic.Id,
+                        diagnostic.Stage,
+                        diagnostic.Message));
+                }
             }
 
             base.Visit(node);
         }
+    }
 
-        private void Report(GraphCSharpRestrictionDiagnostic diagnostic)
+    private static class SourceMapInvariantPass
+    {
+        public static IReadOnlyList<ScriptDiagnostic> Analyze(SyntaxNode root)
         {
-            Report(
-                diagnostic.Node.GetLocation(),
-                diagnostic.Id,
-                diagnostic.Stage,
-                diagnostic.Message);
-        }
+            var diagnostics = new List<ScriptDiagnostic>();
+            foreach (var trivia in root.DescendantTrivia(descendIntoTrivia: true))
+            {
+                if (trivia.IsKind(SyntaxKind.LineDirectiveTrivia) ||
+                    trivia.IsKind(SyntaxKind.LineSpanDirectiveTrivia))
+                {
+                    diagnostics.Add(CreateDiagnostic(
+                        trivia.GetLocation(),
+                        GraphCSharpRuleSet.SourceMapUnavailableId,
+                        GraphCSharpAnalysisStage.SourceMapInvariant,
+                        GraphCSharpRuleSet.GetSourceMapUnavailableMessage(
+                            "#line directives are not supported because graph nodes must map to the original script source.")));
+                }
+            }
 
-        private void Report(Location location, string id, string stage, string message)
-        {
-            var span = location.GetLineSpan();
-            var start = span.StartLinePosition;
-
-            diagnostics.Add(new ScriptDiagnostic(
-                id,
-                stage,
-                GraphCSharpRuleSet.ErrorSeverity,
-                message,
-                Path.GetFileName(span.Path),
-                start.Line + 1,
-                start.Character + 1));
+            return diagnostics;
         }
+    }
+
+    private static ScriptDiagnostic CreateDiagnostic(Location location, string id, string stage, string message)
+    {
+        var span = location.GetLineSpan();
+        var start = span.StartLinePosition;
+
+        return new ScriptDiagnostic(
+            id,
+            stage,
+            GraphCSharpRuleSet.ErrorSeverity,
+            message,
+            Path.GetFileName(span.Path),
+            start.Line + 1,
+            start.Character + 1);
     }
 }

@@ -102,6 +102,31 @@ public sealed class GraphCSharpScriptParserTests
             GraphCSharpAnalysisStage.SourceMapInvariant);
     }
 
+    [Fact]
+    public void ParseText_WhenDiagnosticsAppearInMixedSourceOrder_ReturnsPipelineStageOrder()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScript(
+                """
+                Debug.Log("move");
+                var predicate = () => true;
+                """),
+            "MixedStageOrder.ash.cs");
+
+        var stages = result.Diagnostics
+            .Where(diagnostic => diagnostic.Id is "AGC0001" or "AGC0003")
+            .Select(diagnostic => diagnostic.Stage)
+            .ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                GraphCSharpAnalysisStage.SyntaxRestriction,
+                GraphCSharpAnalysisStage.SemanticBinding
+            },
+            stages);
+    }
+
     [Theory]
     [InlineData("var predicate = () => true;", "AGC0001")]
     [InlineData("await MoveAsync();", "AGC0001")]
