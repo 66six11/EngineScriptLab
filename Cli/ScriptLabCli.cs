@@ -120,7 +120,7 @@ public static class ScriptLabCli
             var outputDirectory = positionalArgs.Length > 1
                 ? Path.GetFullPath(positionalArgs[1])
                 : Path.GetFullPath(Path.Combine("bin", "ScriptDebug"));
-            var emit = DebugScriptCompiler.EmitFile(fullPath, outputDirectory);
+            var emit = SourceInstrumentedDebugCompiler.EmitFile(fullPath, outputDirectory);
 
             Console.Out.WriteLine("DebugEmit:");
             Console.Out.WriteLine($"  Assembly: {emit.AssemblyPath}");
@@ -220,8 +220,8 @@ public static class ScriptLabCli
             var outputDirectory = positionalArgs.Length > 1
                 ? Path.GetFullPath(positionalArgs[1])
                 : Path.GetFullPath(Path.Combine("bin", "ScriptDebug"));
-            var emit = DebugScriptCompiler.EmitFile(fullPath, outputDirectory);
-            var host = DebugScriptHost.Load(emit);
+            var emit = SourceInstrumentedDebugCompiler.EmitFile(fullPath, outputDirectory);
+            var host = DotnetDebugHost.Load(emit);
             var instance = host.MountBehavior(entityId: 1, emit.ProbeManifest.BehaviorId);
 
             DebugScriptHostReporter.Write(instance, Console.Out);
@@ -239,8 +239,8 @@ public static class ScriptLabCli
             var outputDirectory = positionalArgs.Length > 1
                 ? Path.GetFullPath(positionalArgs[1])
                 : Path.GetFullPath(Path.Combine("bin", "ScriptDebug"));
-            var emit = DebugScriptCompiler.EmitFile(fullPath, outputDirectory);
-            var host = DebugScriptHost.Load(emit);
+            var emit = SourceInstrumentedDebugCompiler.EmitFile(fullPath, outputDirectory);
+            var host = DotnetDebugHost.Load(emit);
             var graphNodeId = positionalArgs.Length > 2
                 ? positionalArgs[2]
                 : null;
