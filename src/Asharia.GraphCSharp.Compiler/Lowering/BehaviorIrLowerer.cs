@@ -34,10 +34,13 @@ public static class BehaviorIrLowerer
         var behaviorClass = FindBehaviorClass(root)
             ?? throw new InvalidOperationException("Cannot locate behavior class.");
 
-        return AssignDebugSites(new BehaviorIrModule(
+        var module = new BehaviorIrModule(
             parseResult.Behavior.Id,
             LowerFields(behaviorClass, parseResult.Behavior, semanticModel),
-            LowerFunctions(behaviorClass, parseResult.Behavior, semanticModel)));
+            LowerFunctions(behaviorClass, parseResult.Behavior, semanticModel));
+        BehaviorIrTypeVerifier.Verify(module);
+
+        return AssignDebugSites(module);
     }
 
     private static BehaviorIrModule AssignDebugSites(BehaviorIrModule module)
