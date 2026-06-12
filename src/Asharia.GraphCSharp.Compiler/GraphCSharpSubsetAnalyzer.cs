@@ -54,16 +54,16 @@ public static class GraphCSharpSubsetAnalyzer
                 return;
             }
 
-            foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(node, semanticModel))
+            foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(
+                         node,
+                         stage,
+                         semanticModel))
             {
-                if (diagnostic.Stage == stage)
-                {
-                    diagnostics.Add(CreateDiagnostic(
-                        diagnostic.Node.GetLocation(),
-                        diagnostic.Id,
-                        diagnostic.Stage,
-                        diagnostic.Message));
-                }
+                diagnostics.Add(CreateDiagnostic(
+                    diagnostic.Node.GetLocation(),
+                    diagnostic.Id,
+                    diagnostic.Stage,
+                    diagnostic.Message));
             }
 
             base.Visit(node);

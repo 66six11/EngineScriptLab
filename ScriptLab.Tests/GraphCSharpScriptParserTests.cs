@@ -156,6 +156,17 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
+    public void ParseText_WhenReflectionGetCallIsUsed_DoesNotAlsoReportUnregisteredFunction()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScript("var members = typeof(Unsupported).GetMethods();"),
+            "ReflectionGet.ash.cs");
+
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Id == "AGC0002");
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Id == "AGC0003");
+    }
+
+    [Fact]
     public void ParseText_WhenScriptCallsUnregisteredMemberFunction_ReturnsAgc0003()
     {
         var result = GraphCSharpScriptParser.ParseText(

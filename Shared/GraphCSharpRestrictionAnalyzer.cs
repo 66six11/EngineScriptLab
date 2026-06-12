@@ -57,26 +57,74 @@ public static class GraphCSharpRestrictionAnalyzer
         SyntaxNode node,
         SemanticModel? semanticModel = null)
     {
+        return new[]
+            {
+                GraphCSharpAnalysisStage.SyntaxRestriction,
+                GraphCSharpAnalysisStage.SemanticBinding,
+                GraphCSharpAnalysisStage.TypeCheck,
+                GraphCSharpAnalysisStage.EffectCheck,
+                GraphCSharpAnalysisStage.ContextCheck
+            }
+            .SelectMany(stage => AnalyzeNode(node, stage, semanticModel))
+            .ToArray();
+    }
+
+    public static IReadOnlyList<GraphCSharpRestrictionDiagnostic> AnalyzeNode(
+        SyntaxNode node,
+        string stage,
+        SemanticModel? semanticModel = null)
+    {
         var diagnostics = new List<GraphCSharpRestrictionDiagnostic>();
 
+        switch (stage)
+        {
+            case GraphCSharpAnalysisStage.SyntaxRestriction:
+                AnalyzeSyntaxRestriction(node, semanticModel, diagnostics);
+                break;
+
+            case GraphCSharpAnalysisStage.SemanticBinding:
+                AnalyzeSemanticBinding(node, semanticModel, diagnostics);
+                break;
+
+            case GraphCSharpAnalysisStage.TypeCheck:
+                AnalyzeTypeCheck(node, semanticModel, diagnostics);
+                break;
+
+            case GraphCSharpAnalysisStage.EffectCheck:
+                AnalyzeEffectCheck(node, semanticModel, diagnostics);
+                break;
+
+            case GraphCSharpAnalysisStage.ContextCheck:
+                AnalyzeContextCheck(node, semanticModel, diagnostics);
+                break;
+        }
+
+        return diagnostics;
+    }
+
+    private static void AnalyzeSyntaxRestriction(
+        SyntaxNode node,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
         var rule = GraphCSharpRuleSet.Find(node.Kind());
         if (rule is not null)
         {
-            diagnostics.Add(new GraphCSharpRestrictionDiagnostic(node, rule.Id, rule.Message));
+            diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
+                node,
+                rule.Id,
+                rule.Message,
+                GraphCSharpAnalysisStage.SyntaxRestriction));
         }
 
         switch (node)
         {
             case InvocationExpressionSyntax invocation:
-                AnalyzeInvocation(invocation, semanticModel, diagnostics);
-                break;
-
-            case TypeSyntax type:
-                AnalyzeType(type, diagnostics);
+                AnalyzeInvocationSyntax(invocation, diagnostics);
                 break;
 
             case FieldDeclarationSyntax fieldDeclaration:
-                AnalyzeFieldDeclaration(fieldDeclaration, semanticModel, diagnostics);
+                AnalyzeFieldSyntax(fieldDeclaration, diagnostics);
                 break;
 
             case ObjectCreationExpressionSyntax objectCreation:
@@ -90,13 +138,82 @@ public static class GraphCSharpRestrictionAnalyzer
                     GraphCSharpRuleSet.GetUnsupportedImplicitAllocationMessage()));
                 break;
         }
-
-        return diagnostics;
     }
 
-    private static void AnalyzeInvocation(
-        InvocationExpressionSyntax invocation,
+    private static void AnalyzeSemanticBinding(
+        SyntaxNode node,
         SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        switch (node)
+        {
+            case InvocationExpressionSyntax invocation:
+                AnalyzeInvocationBinding(invocation, semanticModel, diagnostics);
+                break;
+
+            case FieldDeclarationSyntax fieldDeclaration:
+                AnalyzeFieldBinding(fieldDeclaration, diagnostics);
+                break;
+        }
+    }
+
+    private static void AnalyzeTypeCheck(
+        SyntaxNode node,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        switch (node)
+        {
+            case TypeSyntax type:
+                AnalyzeType(type, diagnostics);
+                break;
+
+            case InvocationExpressionSyntax invocation:
+                AnalyzeInvocationTypes(invocation, semanticModel, diagnostics);
+                break;
+
+            case FieldDeclarationSyntax fieldDeclaration:
+                AnalyzeFieldType(fieldDeclaration, semanticModel, diagnostics);
+                break;
+        }
+    }
+
+    private static void AnalyzeEffectCheck(
+        SyntaxNode node,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        if (node is InvocationExpressionSyntax invocation &&
+            TryResolveBinding(invocation, semanticModel, out var binding))
+        {
+            foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeInvocationEffects(
+                         invocation,
+                         binding))
+            {
+                diagnostics.Add(diagnostic);
+            }
+        }
+    }
+
+    private static void AnalyzeContextCheck(
+        SyntaxNode node,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        if (node is InvocationExpressionSyntax invocation &&
+            TryResolveBinding(invocation, semanticModel, out var binding))
+        {
+            foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeInvocationContext(
+                         invocation,
+                         binding))
+            {
+                diagnostics.Add(diagnostic);
+            }
+        }
+    }
+
+    private static void AnalyzeInvocationSyntax(
+        InvocationExpressionSyntax invocation,
         ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
     {
         if (invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
@@ -107,23 +224,21 @@ public static class GraphCSharpRestrictionAnalyzer
                 GraphCSharpRuleSet.UnsupportedExpressionId,
                 GraphCSharpRuleSet.GetUnsupportedReflectionMessage(memberAccess.ToString()),
                 GraphCSharpAnalysisStage.SyntaxRestriction));
+        }
+    }
+
+    private static void AnalyzeInvocationBinding(
+        InvocationExpressionSyntax invocation,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        if (IsReflectionGetInvocation(invocation))
+        {
             return;
         }
 
-        if (GraphCSharpBindingRegistry.TryResolveFunctionBinding(
-                invocation,
-                semanticModel,
-                out var binding,
-                out var csharpName))
+        if (TryResolveBinding(invocation, semanticModel, out _, out var csharpName))
         {
-            foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeInvocation(
-                         invocation,
-                         semanticModel,
-                         binding))
-            {
-                diagnostics.Add(diagnostic);
-            }
-
             return;
         }
 
@@ -132,6 +247,25 @@ public static class GraphCSharpRestrictionAnalyzer
             GraphCSharpRuleSet.UnregisteredFunctionCallId,
             GraphCSharpBindingRegistry.GetUnregisteredFunctionCallMessage(csharpName),
             GraphCSharpAnalysisStage.SemanticBinding));
+    }
+
+    private static void AnalyzeInvocationTypes(
+        InvocationExpressionSyntax invocation,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        if (!TryResolveBinding(invocation, semanticModel, out var binding))
+        {
+            return;
+        }
+
+        foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeInvocationTypes(
+                     invocation,
+                     semanticModel,
+                     binding))
+        {
+            diagnostics.Add(diagnostic);
+        }
     }
 
     private static void AnalyzeType(
@@ -156,9 +290,8 @@ public static class GraphCSharpRestrictionAnalyzer
             GraphCSharpAnalysisStage.TypeCheck));
     }
 
-    private static void AnalyzeFieldDeclaration(
+    private static void AnalyzeFieldSyntax(
         FieldDeclarationSyntax fieldDeclaration,
-        SemanticModel? semanticModel,
         ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
     {
         if (fieldDeclaration.Modifiers.Any(SyntaxKind.StaticKeyword) &&
@@ -173,21 +306,15 @@ public static class GraphCSharpRestrictionAnalyzer
                     GraphCSharpAnalysisStage.SyntaxRestriction));
             }
         }
+    }
 
-        if (!IsBehaviorField(fieldDeclaration))
+    private static void AnalyzeFieldBinding(
+        FieldDeclarationSyntax fieldDeclaration,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        if (!IsBehaviorField(fieldDeclaration) ||
+            TryGetStableFieldId(fieldDeclaration.AttributeLists, out _))
         {
-            return;
-        }
-
-        if (TryGetStableFieldId(fieldDeclaration.AttributeLists, out _))
-        {
-            foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeBehaviorFieldDeclaration(
-                         fieldDeclaration,
-                         semanticModel))
-            {
-                diagnostics.Add(diagnostic);
-            }
-
             return;
         }
 
@@ -198,6 +325,17 @@ public static class GraphCSharpRestrictionAnalyzer
                 GraphCSharpRuleSet.MissingStableFieldId,
                 GraphCSharpRuleSet.GetMissingStableFieldIdMessage(variable.Identifier.ValueText),
                 GraphCSharpAnalysisStage.SemanticBinding));
+        }
+    }
+
+    private static void AnalyzeFieldType(
+        FieldDeclarationSyntax fieldDeclaration,
+        SemanticModel? semanticModel,
+        ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
+    {
+        if (!IsBehaviorField(fieldDeclaration))
+        {
+            return;
         }
 
         foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeBehaviorFieldDeclaration(
@@ -251,6 +389,33 @@ public static class GraphCSharpRestrictionAnalyzer
     {
         return memberAccess.Expression is TypeOfExpressionSyntax &&
             memberAccess.Name.Identifier.ValueText.StartsWith("Get", StringComparison.Ordinal);
+    }
+
+    private static bool IsReflectionGetInvocation(InvocationExpressionSyntax invocation)
+    {
+        return invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
+            IsReflectionGetCall(memberAccess);
+    }
+
+    private static bool TryResolveBinding(
+        InvocationExpressionSyntax invocation,
+        SemanticModel? semanticModel,
+        out GraphCSharpFunctionBinding binding)
+    {
+        return TryResolveBinding(invocation, semanticModel, out binding, out _);
+    }
+
+    private static bool TryResolveBinding(
+        InvocationExpressionSyntax invocation,
+        SemanticModel? semanticModel,
+        out GraphCSharpFunctionBinding binding,
+        out string csharpName)
+    {
+        return GraphCSharpBindingRegistry.TryResolveFunctionBinding(
+            invocation,
+            semanticModel,
+            out binding,
+            out csharpName);
     }
 
     private static bool IsBehaviorField(FieldDeclarationSyntax field)

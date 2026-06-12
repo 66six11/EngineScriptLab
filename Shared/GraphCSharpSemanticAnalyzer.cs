@@ -42,10 +42,38 @@ public static class GraphCSharpSemanticAnalyzer
     {
         var diagnostics = new List<GraphCSharpRestrictionDiagnostic>();
 
-        AnalyzeFunctionContext(invocation, binding, diagnostics);
-        AnalyzeFunctionSideEffects(invocation, binding, diagnostics);
-        AnalyzeFunctionArguments(invocation, semanticModel, binding, diagnostics);
+        diagnostics.AddRange(AnalyzeInvocationContext(invocation, binding));
+        diagnostics.AddRange(AnalyzeInvocationEffects(invocation, binding));
+        diagnostics.AddRange(AnalyzeInvocationTypes(invocation, semanticModel, binding));
 
+        return diagnostics;
+    }
+
+    public static IReadOnlyList<GraphCSharpRestrictionDiagnostic> AnalyzeInvocationContext(
+        InvocationExpressionSyntax invocation,
+        GraphCSharpFunctionBinding binding)
+    {
+        var diagnostics = new List<GraphCSharpRestrictionDiagnostic>();
+        AnalyzeFunctionContext(invocation, binding, diagnostics);
+        return diagnostics;
+    }
+
+    public static IReadOnlyList<GraphCSharpRestrictionDiagnostic> AnalyzeInvocationEffects(
+        InvocationExpressionSyntax invocation,
+        GraphCSharpFunctionBinding binding)
+    {
+        var diagnostics = new List<GraphCSharpRestrictionDiagnostic>();
+        AnalyzeFunctionSideEffects(invocation, binding, diagnostics);
+        return diagnostics;
+    }
+
+    public static IReadOnlyList<GraphCSharpRestrictionDiagnostic> AnalyzeInvocationTypes(
+        InvocationExpressionSyntax invocation,
+        SemanticModel? semanticModel,
+        GraphCSharpFunctionBinding binding)
+    {
+        var diagnostics = new List<GraphCSharpRestrictionDiagnostic>();
+        AnalyzeFunctionArguments(invocation, semanticModel, binding, diagnostics);
         return diagnostics;
     }
 
