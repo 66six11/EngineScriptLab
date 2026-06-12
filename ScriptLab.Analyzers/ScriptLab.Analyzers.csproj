@@ -17,6 +17,7 @@
         <Compile Include="..\src\Asharia.GraphCSharp.Abstractions\GraphIds.cs" Link="Shared\GraphIds.cs" />
         <Compile Include="..\Shared\GraphCSharpRuleSet.cs" Link="Shared\GraphCSharpRuleSet.cs" />
         <Compile Include="..\Shared\GraphCSharpBindingRegistry.cs" Link="Shared\GraphCSharpBindingRegistry.cs" />
+        <Compile Include="..\Shared\GraphCSharpSemanticAnalyzer.cs" Link="Shared\GraphCSharpSemanticAnalyzer.cs" />
         <Compile Include="..\Shared\GraphCSharpRestrictionAnalyzer.cs" Link="Shared\GraphCSharpRestrictionAnalyzer.cs" />
     </ItemGroup>
 

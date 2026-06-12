@@ -69,7 +69,7 @@ public static class GraphCSharpRestrictionAnalyzer
                 break;
 
             case FieldDeclarationSyntax fieldDeclaration:
-                AnalyzeFieldDeclaration(fieldDeclaration, diagnostics);
+                AnalyzeFieldDeclaration(fieldDeclaration, semanticModel, diagnostics);
                 break;
 
             case ObjectCreationExpressionSyntax objectCreation:
@@ -102,12 +102,20 @@ public static class GraphCSharpRestrictionAnalyzer
             return;
         }
 
-        if (GraphCSharpBindingRegistry.TryResolveFunctionId(
+        if (GraphCSharpBindingRegistry.TryResolveFunctionBinding(
                 invocation,
                 semanticModel,
-                out _,
+                out var binding,
                 out var csharpName))
         {
+            foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeInvocation(
+                         invocation,
+                         semanticModel,
+                         binding))
+            {
+                diagnostics.Add(diagnostic);
+            }
+
             return;
         }
 
@@ -140,6 +148,7 @@ public static class GraphCSharpRestrictionAnalyzer
 
     private static void AnalyzeFieldDeclaration(
         FieldDeclarationSyntax fieldDeclaration,
+        SemanticModel? semanticModel,
         ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
     {
         if (fieldDeclaration.Modifiers.Any(SyntaxKind.StaticKeyword) &&
@@ -161,6 +170,13 @@ public static class GraphCSharpRestrictionAnalyzer
 
         if (TryGetStableFieldId(fieldDeclaration.AttributeLists, out _))
         {
+            foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeBehaviorFieldDeclaration(
+                         fieldDeclaration,
+                         semanticModel))
+            {
+                diagnostics.Add(diagnostic);
+            }
+
             return;
         }
 
@@ -170,6 +186,13 @@ public static class GraphCSharpRestrictionAnalyzer
                 variable,
                 GraphCSharpRuleSet.MissingStableFieldId,
                 GraphCSharpRuleSet.GetMissingStableFieldIdMessage(variable.Identifier.ValueText)));
+        }
+
+        foreach (var diagnostic in GraphCSharpSemanticAnalyzer.AnalyzeBehaviorFieldDeclaration(
+                     fieldDeclaration,
+                     semanticModel))
+        {
+            diagnostics.Add(diagnostic);
         }
     }
 

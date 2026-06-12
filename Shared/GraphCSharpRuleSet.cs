@@ -44,6 +44,8 @@ public static class GraphCSharpRuleSet
     public const string UnsupportedExpressionId = "AGC0002";
     public const string UnregisteredFunctionCallId = "AGC0003";
     public const string MissingStableFieldId = "AGC0004";
+    public const string IllegalContextCallId = "AGC0005";
+    public const string HiddenSideEffectId = "AGC0006";
     public const string UnsupportedLoopId = "AGC0007";
     public const string UnsupportedTypeId = "AGC0008";
     public const string UnsupportedAllocationId = "AGC0009";
@@ -59,6 +61,36 @@ public static class GraphCSharpRuleSet
 
     private static readonly string[] ConstructibleValueTypeQualifiedNames =
     {
+        "Asharia.Behavior.Vec2",
+        "Asharia.Behavior.Vec3",
+        "Asharia.Behavior.Vec4",
+        "Asharia.Behavior.Quat",
+        "Asharia.Behavior.Color"
+    };
+
+    private static readonly string[] SupportedFieldTypeNames =
+    {
+        "bool",
+        "int",
+        "float",
+        "string",
+        "EntityRef",
+        "Key",
+        "Vec2",
+        "Vec3",
+        "Vec4",
+        "Quat",
+        "Color"
+    };
+
+    private static readonly string[] SupportedFieldTypeQualifiedNames =
+    {
+        "bool",
+        "int",
+        "float",
+        "string",
+        "Asharia.Behavior.EntityRef",
+        "Asharia.Behavior.Key",
         "Asharia.Behavior.Vec2",
         "Asharia.Behavior.Vec3",
         "Asharia.Behavior.Vec4",
@@ -83,6 +115,8 @@ public static class GraphCSharpRuleSet
         new(UnsupportedExpressionId, "Unsupported Graph C# expression"),
         new(UnregisteredFunctionCallId, "Unregistered Graph C# function call"),
         new(MissingStableFieldId, "Missing stable Graph C# field id"),
+        new(IllegalContextCallId, "Illegal Graph C# context call"),
+        new(HiddenSideEffectId, "Hidden Graph C# side effect"),
         new(UnsupportedLoopId, "Unsupported Graph C# loop"),
         new(UnsupportedTypeId, "Unsupported Graph C# type"),
         new(UnsupportedAllocationId, "Unsupported Graph C# allocation")
@@ -270,6 +304,37 @@ public static class GraphCSharpRuleSet
         return ContainsSimpleName(UnsupportedTypeNames, typeName);
     }
 
+    public static bool IsSupportedFieldType(string typeName)
+    {
+        return TryGetSupportedFieldTypeName(typeName, requireQualifiedMatch: false, out _);
+    }
+
+    public static bool IsSupportedFieldTypeSymbol(string typeName)
+    {
+        return TryGetSupportedFieldTypeName(typeName, requireQualifiedMatch: true, out _);
+    }
+
+    public static bool TryGetSupportedFieldTypeName(
+        string typeName,
+        bool requireQualifiedMatch,
+        out string canonicalTypeName)
+    {
+        var normalizedTypeName = NormalizeTypeName(typeName);
+        for (var i = 0; i < SupportedFieldTypeNames.Length; i++)
+        {
+            if (string.Equals(SupportedFieldTypeQualifiedNames[i], normalizedTypeName, StringComparison.Ordinal) ||
+                (!requireQualifiedMatch &&
+                 string.Equals(SupportedFieldTypeNames[i], GetSimpleName(normalizedTypeName), StringComparison.Ordinal)))
+            {
+                canonicalTypeName = SupportedFieldTypeNames[i];
+                return true;
+            }
+        }
+
+        canonicalTypeName = string.Empty;
+        return false;
+    }
+
     public static string GetUnsupportedTypeMessage(string typeName)
     {
         return $"Type '{typeName}' is not supported by Graph C# v0.";
@@ -298,6 +363,33 @@ public static class GraphCSharpRuleSet
     public static string GetMissingStableFieldIdMessage(string fieldName)
     {
         return $"Field '{fieldName}' must declare a stable Graph C# field id with [Field(id)].";
+    }
+
+    public static string GetInvalidFunctionArgumentCountMessage(
+        string csharpName,
+        int expectedCount,
+        int actualCount)
+    {
+        return $"Function call '{csharpName}' expects {expectedCount} argument(s), but received {actualCount}.";
+    }
+
+    public static string GetInvalidFunctionArgumentTypeMessage(
+        string csharpName,
+        int argumentIndex,
+        string expectedType,
+        string actualType)
+    {
+        return $"Function call '{csharpName}' argument {argumentIndex} expects '{expectedType}', but received '{actualType}'.";
+    }
+
+    public static string GetIllegalContextCallMessage(string csharpName, string contextName)
+    {
+        return $"Function call '{csharpName}' is not allowed in Graph C# context '{contextName}'.";
+    }
+
+    public static string GetHiddenSideEffectMessage(string csharpName)
+    {
+        return $"Function call '{csharpName}' has side effects and must be used as a standalone statement.";
     }
 
     private static bool ContainsSimpleName(string[] names, string typeName)

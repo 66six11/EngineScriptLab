@@ -228,6 +228,179 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
+    public void ParseText_WhenBehaviorFieldUsesRegisteredTypeAlias_ReturnsNoDiagnostics()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+            using Offset = Asharia.Behavior.Vec3;
+
+            namespace com.game;
+
+            [Behavior("com.game.AliasedField")]
+            public sealed partial class AliasedField : BehaviorComponent
+            {
+                [Field(1)]
+                public Offset SpawnOffset;
+
+                protected override void Update(float delta)
+                {
+                    return;
+                }
+            }
+            """,
+            "AliasedField.ash.cs");
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ParseText_WhenBehaviorFieldUsesCustomType_ReturnsAgc0008()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            public sealed class SpawnSettings
+            {
+            }
+
+            [Behavior("com.game.CustomField")]
+            public sealed partial class CustomField : BehaviorComponent
+            {
+                [Field(1)]
+                public SpawnSettings Settings;
+
+                protected override void Update(float delta)
+                {
+                    return;
+                }
+            }
+            """,
+            "CustomField.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0008" &&
+            diagnostic.Message.Contains("com.game.SpawnSettings", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenBehaviorFieldSpoofsRegisteredTypeName_ReturnsAgc0008()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            public sealed class Vec3
+            {
+            }
+
+            [Behavior("com.game.SpoofedField")]
+            public sealed partial class SpoofedField : BehaviorComponent
+            {
+                [Field(1)]
+                public Vec3 Offset;
+
+                protected override void Update(float delta)
+                {
+                    return;
+                }
+            }
+            """,
+            "SpoofedField.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0008" &&
+            diagnostic.Message.Contains("com.game.Vec3", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenRegisteredFunctionArgumentCountDoesNotMatch_ReturnsAgc0008()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScript("if (Input.KeyDown()) { return; }"),
+            "InvalidArgumentCount.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0008" &&
+            diagnostic.Message.Contains("expects 1 argument", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenRegisteredFunctionArgumentTypeDoesNotMatch_ReturnsAgc0008()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScript("Transform.Translate(Self, 1);"),
+            "InvalidArgumentType.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0008" &&
+            diagnostic.Message.Contains("expects 'Vec3'", StringComparison.Ordinal) &&
+            diagnostic.Message.Contains("int", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenRegisteredFunctionIsCalledFromIllegalContext_ReturnsAgc0005()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScriptWithMethod(
+                "Start",
+                "if (Input.KeyDown(Key.W)) { return; }"),
+            "IllegalContext.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0005" &&
+            diagnostic.Message.Contains("Input.KeyDown", StringComparison.Ordinal) &&
+            diagnostic.Message.Contains("Start", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenRegisteredFunctionIsCalledFromUnknownContext_ReturnsAgc0005()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScriptWithMethod(
+                "Tick",
+                "if (Input.KeyDown(Key.W)) { return; }"),
+            "UnknownContext.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0005" &&
+            diagnostic.Message.Contains("Input.KeyDown", StringComparison.Ordinal) &&
+            diagnostic.Message.Contains("unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenWorldMutationIsHiddenInsideExpression_ReturnsAgc0006()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            BuildScript("var text = Transform.Translate(Self, new Vec3(0f, 0f, 1f)).ToString();"),
+            "HiddenSideEffect.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0006" &&
+            diagnostic.Message.Contains("Transform.Translate", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ParseText_WhenScriptDeclaresStaticField_ReturnsAgc0001()
     {
         var result = GraphCSharpScriptParser.ParseText(
@@ -416,6 +589,27 @@ public sealed class GraphCSharpScriptParserTests
                 protected override void Update(float delta)
                 {
                     return;
+                }
+            }
+            """;
+    }
+
+    private static string BuildScriptWithMethod(string methodName, string methodBody)
+    {
+        return $$"""
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            [Behavior("com.game.Unsupported")]
+            public sealed partial class Unsupported : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                private void {{methodName}}()
+                {
+                    {{methodBody}}
                 }
             }
             """;

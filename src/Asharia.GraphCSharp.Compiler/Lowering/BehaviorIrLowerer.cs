@@ -467,14 +467,13 @@ public static class BehaviorIrLowerer
                 .Select(argument => LowerExpression(argument.Expression))
                 .ToArray();
             var functionName = invocation.Expression.ToString();
-            if (!GraphCSharpBindingRegistry.TryResolveFunctionId(
-                    invocation,
-                    semanticModel,
-                    out var functionId,
-                    out var resolvedFunctionName))
-            {
-                functionId = new FunctionId(resolvedFunctionName.Length == 0 ? functionName : resolvedFunctionName);
-            }
+            var functionId = GraphCSharpBindingRegistry.TryResolveFunctionBinding(
+                invocation,
+                semanticModel,
+                out var binding,
+                out var resolvedFunctionName)
+                ? binding.FunctionId
+                : new FunctionId(resolvedFunctionName.Length == 0 ? functionName : resolvedFunctionName);
 
             if (emitResult)
             {
@@ -500,12 +499,12 @@ public static class BehaviorIrLowerer
         {
             value = string.Empty;
 
-            if (!GraphCSharpBindingRegistry.TryResolveFunctionId(
+            if (!GraphCSharpBindingRegistry.TryResolveFunctionBinding(
                     invocation,
                     semanticModel,
-                    out var functionId,
+                    out var binding,
                     out _) ||
-                functionId.Value is not ("asharia.debug.inspect" or "asharia.debug.watch"))
+                binding.FunctionId.Value is not ("asharia.debug.inspect" or "asharia.debug.watch"))
             {
                 return false;
             }
@@ -524,7 +523,7 @@ public static class BehaviorIrLowerer
             currentBlock.Instructions.Add(new BehaviorIrDebugWatch(
                 watchName,
                 value,
-                functionId.Value == "asharia.debug.watch" && !emitResult,
+                binding.FunctionId.Value == "asharia.debug.watch" && !emitResult,
                 GetSourceSpan(invocation)));
 
             return true;
