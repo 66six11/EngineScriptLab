@@ -76,9 +76,7 @@ public sealed partial class ScriptLabJsonRpcServer
 
         public JsonObject? PendingAttachArguments { get; set; }
 
-        public DapDebugSessionRuntime? DapRuntime { get; set; }
-
-        public DapAdapterProcess? DapAdapterProcess { get; set; }
+        public DapDebugBackendSession? DapBackend { get; set; }
 
         public CancellationTokenSource? DebugEventPumpCancellation { get; set; }
 

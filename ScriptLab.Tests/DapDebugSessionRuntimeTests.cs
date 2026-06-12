@@ -6,6 +6,24 @@ namespace ScriptLab.Tests;
 public sealed class DapDebugSessionRuntimeTests
 {
     [Fact]
+    public void BackendSession_WhenCreated_ExposesRuntimeLifecycle()
+    {
+        var emit = EmitPlayerMove();
+        var session = CreateSession(emit);
+        var transport = new FakeDapTransport();
+        var runtime = new DapDebugSessionRuntime(
+            new DapDebugSessionClient(transport, transport),
+            session,
+            emit.DebugMap);
+
+        using var backend = new DapDebugBackendSession(runtime);
+
+        Assert.Same(runtime, backend.Runtime);
+        Assert.Equal(DapDebugSessionPhase.Created, backend.Lifecycle.Phase);
+        Assert.Empty(backend.Lifecycle.CompletedPhases);
+    }
+
+    [Fact]
     public void Runtime_WhenBreakpointStopIsDrained_ReadsPausedSnapshotWithFrameVariables()
     {
         var emit = EmitPlayerMove();

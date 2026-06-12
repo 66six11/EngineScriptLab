@@ -461,10 +461,11 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                                 false;
         ClearPausedState(current);
 
-        if (current.DapRuntime is not null)
+        var dapBackend = current.DapBackend;
+        if (dapBackend is not null)
         {
-            current.DapRuntime.Disconnect(terminateDebuggee);
-            var lifecycle = current.DapRuntime.Lifecycle;
+            dapBackend.Runtime.Disconnect(terminateDebuggee);
+            var lifecycle = dapBackend.Lifecycle;
             ClearAttachedHostState(current);
             return new ScriptLabDebugHostDisconnectResult(
                 "disconnected",
@@ -505,7 +506,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
             var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
             processId = current.AttachedHost?.ProcessId;
             processStartTimeUtc = current.AttachedHost?.ProcessStartTimeUtc;
-            lifecycle = current.DapRuntime?.Lifecycle;
+            lifecycle = current.DapBackend?.Lifecycle;
             cachedExitCode = GetLatestDebugHostExitCode(current);
             if (processId is null)
             {
@@ -593,9 +594,10 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         ClearPausedState(current);
         if (current.AttachedHost is not null)
         {
-            if (current.DapRuntime is not null && parameters.ThreadId is not null)
+            var dapBackend = current.DapBackend;
+            if (dapBackend is not null && parameters.ThreadId is not null)
             {
-                var continueResult = current.DapRuntime.Continue(parameters.ThreadId.Value);
+                var continueResult = dapBackend.Runtime.Continue(parameters.ThreadId.Value);
                 return new ScriptLabExecutionControlResult(
                     continueResult.AllThreadsContinued ? "continued" : "continuedThread",
                     "dap",
@@ -603,7 +605,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                     parameters.ThreadId,
                     StepKind: null,
                     Granularity: null,
-                    current.DapRuntime.Lifecycle);
+                    dapBackend.Lifecycle);
             }
 
             return new ScriptLabExecutionControlResult(
@@ -632,9 +634,10 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         ClearPausedState(current);
         if (current.AttachedHost is not null)
         {
-            if (current.DapRuntime is not null && parameters.ThreadId is not null)
+            var dapBackend = current.DapBackend;
+            if (dapBackend is not null && parameters.ThreadId is not null)
             {
-                current.DapRuntime.Next(parameters.ThreadId.Value, parameters.Granularity);
+                dapBackend.Runtime.Next(parameters.ThreadId.Value, parameters.Granularity);
                 return new ScriptLabExecutionControlResult(
                     "stepped",
                     "dap",
@@ -642,7 +645,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                     parameters.ThreadId,
                     parameters.Kind,
                     parameters.Granularity,
-                    current.DapRuntime.Lifecycle);
+                    dapBackend.Lifecycle);
             }
 
             return new ScriptLabExecutionControlResult(
@@ -724,7 +727,8 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                     Array.Empty<ScriptDebugVariable>());
             }
 
-            if (current.DapRuntime is null)
+            var dapRuntime = current.DapBackend?.Runtime;
+            if (dapRuntime is null)
             {
                 return CreateReadVariablesResult(
                     "unsupported",
@@ -738,7 +742,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
             }
 
             var variables = CreateDapVariableResults(
-                current.DapRuntime.ReadVariables(parameters.VariablesReference.Value),
+                dapRuntime.ReadVariables(parameters.VariablesReference.Value),
                 parameters.VariablesReference.Value);
             return CreateReadVariablesResult(
                 "ok",
@@ -819,7 +823,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                         parameters.AfterEventSequence);
                 }
 
-                if (current.DapRuntime is null)
+                if (current.DapBackend is null)
                 {
                     return AddDebugEventCursor(
                         current,
@@ -862,7 +866,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                             StoppedEvent: null,
                             DebugStateId: current.CurrentDebugStateId,
                             PausedSnapshot: null,
-                            Lifecycle: current.DapRuntime.Lifecycle));
+                            Lifecycle: current.DapBackend.Lifecycle));
                 }
 
                 var remaining = timeout - stopwatch.Elapsed;
@@ -957,9 +961,9 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         if (result.PausedSnapshot is not null ||
             result.StoppedEvent is null ||
             result.DebugStateId is null ||
-            current.DapRuntime is null ||
+            current.DapBackend is null ||
             current.CurrentDebugStateId != result.DebugStateId ||
-            !current.DapRuntime.IsCurrentStoppedEvent(result.StoppedEvent))
+            !current.DapBackend.Runtime.IsCurrentStoppedEvent(result.StoppedEvent))
         {
             return result;
         }
@@ -1091,7 +1095,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         ServerState current,
         int entityId)
     {
-        var drain = current.DapRuntime!.DrainDebugEvents();
+        var drain = current.DapBackend!.Runtime.DrainDebugEvents();
         var stoppedEvent = drain.StoppedEvents.LastOrDefault();
         var debugStateId = drain.CurrentStoppedEvent is null
             ? current.CurrentDebugStateId
@@ -1127,7 +1131,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         int entityId)
     {
         current.Host.MountBehavior(entityId, current.Emit.DebugMap.BehaviorId);
-        return current.DapRuntime!.ReadPausedSnapshot(current.Host, stoppedEvent, entityId);
+        return current.DapBackend!.Runtime.ReadPausedSnapshot(current.Host, stoppedEvent, entityId);
     }
 
     private ScriptTraceSnapshot GetTraceSnapshot()
@@ -1241,7 +1245,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private static string GetDebugBackend(ServerState current)
     {
-        return current.DapRuntime is not null || current.AttachedHost is not null
+        return current.DapBackend is not null || current.AttachedHost is not null
             ? "dap"
             : "probe";
     }
@@ -1265,7 +1269,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                 {
                     if (cancellationToken.IsCancellationRequested ||
                         state != current ||
-                        current.DapRuntime is null)
+                        current.DapBackend is null)
                     {
                         return;
                     }
@@ -1304,11 +1308,10 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private void ClearAttachedHostState(ServerState current)
     {
         StopDebugEventPump(current);
-        current.DapAdapterProcess?.Dispose();
+        current.DapBackend?.Dispose();
         current.AttachedHost = null;
         current.PendingAttachArguments = null;
-        current.DapRuntime = null;
-        current.DapAdapterProcess = null;
+        current.DapBackend = null;
         ClearDebugEventState(current);
         Monitor.PulseAll(syncRoot);
     }
@@ -1619,7 +1622,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
             current.Emit.DebugMap.SourceDocumentPath,
             CreateDapInitializeArguments(),
             attachArguments.DeepClone().AsObject()));
-        current.DapRuntime = attachResult.Runtime;
+        current.DapBackend = new DapDebugBackendSession(attachResult.Runtime);
         current.LastBackendResults = attachResult.BreakpointResults;
         return attachResult;
     }
@@ -1649,9 +1652,8 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
                 CreateDapInitializeArguments(),
                 CreateDapAdapterAttachArguments(attachTarget));
 
-            current.DapAdapterProcess = adapter;
+            current.DapBackend = new DapDebugBackendSession(attachResult.Runtime, adapter);
             adapter = null;
-            current.DapRuntime = attachResult.Runtime;
             current.LastBackendResults = attachResult.BreakpointResults;
             return attachResult;
         }
