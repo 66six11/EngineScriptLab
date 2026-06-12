@@ -34,7 +34,7 @@ public sealed class GraphCSharpDiagnosticAnalyzer : DiagnosticAnalyzer
 
     private static void ReportRestriction(SyntaxNodeAnalysisContext context)
     {
-        foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(context.Node))
+        foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(context.Node, context.SemanticModel))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 Descriptors[diagnostic.Id],

@@ -96,6 +96,38 @@ public sealed class BehaviorIrLowererTests
         Assert.Equal(new BehaviorIrVerificationVec3(0f, 0f, 2f), call.Arguments[1]);
     }
 
+    [Fact]
+    public void LowerText_WhenRegisteredFunctionUsesTypeAlias_UsesRegisteredFunctionId()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildAliasScript(),
+            "AliasedInputMove.ash.cs");
+
+        var call = module.Functions
+            .SelectMany(function => function.Blocks)
+            .SelectMany(block => block.Instructions)
+            .OfType<BehaviorIrCallFunction>()
+            .Single();
+
+        Assert.Equal(new FunctionId("asharia.input.keyDown"), call.FunctionId);
+    }
+
+    [Fact]
+    public void LowerText_WhenRegisteredValueTypeUsesTypeAlias_UsesCanonicalIrType()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildAliasValueTypeScript(),
+            "AliasedOffsetMove.ash.cs");
+
+        var makeStruct = module.Functions
+            .SelectMany(function => function.Blocks)
+            .SelectMany(block => block.Instructions)
+            .OfType<BehaviorIrMakeStruct>()
+            .Single();
+
+        Assert.Equal("Vec3", makeStruct.Type);
+    }
+
     private static string GetSamplePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -133,6 +165,48 @@ public sealed class BehaviorIrLowererTests
                     {
                         Transform.Translate(Self, new Vec3(0f, 0f, 2f));
                     }
+                }
+            }
+            """;
+    }
+
+    private static string BuildAliasScript()
+    {
+        return """
+            using Asharia.Behavior;
+            using GameInput = Asharia.Behavior.Input;
+
+            namespace com.game;
+
+            public class AliasedInputMove : BehaviorComponent
+            {
+                protected override void Update(float delta)
+                {
+                    if (GameInput.KeyDown(Key.W))
+                    {
+                        return;
+                    }
+                }
+            }
+            """;
+    }
+
+    private static string BuildAliasValueTypeScript()
+    {
+        return """
+            using Asharia.Behavior;
+            using Offset = Asharia.Behavior.Vec3;
+
+            namespace com.game;
+
+            public class AliasedOffsetMove : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(float delta)
+                {
+                    Transform.Translate(Self, new Offset(0f, 0f, Speed * delta));
                 }
             }
             """;

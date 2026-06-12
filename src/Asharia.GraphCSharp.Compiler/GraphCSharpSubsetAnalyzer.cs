@@ -7,16 +7,23 @@ namespace ScriptLab;
 
 public static class GraphCSharpSubsetAnalyzer
 {
-    public static IReadOnlyList<ScriptDiagnostic> Analyze(CompilationUnitSyntax root)
+    public static IReadOnlyList<ScriptDiagnostic> Analyze(SyntaxTree tree)
     {
-        var walker = new Walker();
+        var root = tree.GetCompilationUnitRoot();
+        var walker = new Walker(GraphCSharpSemanticModelFactory.CreateSemanticModel(tree));
         walker.Visit(root);
         return walker.Diagnostics;
     }
 
     private sealed class Walker : CSharpSyntaxWalker
     {
+        private readonly SemanticModel semanticModel;
         private readonly List<ScriptDiagnostic> diagnostics = new();
+
+        public Walker(SemanticModel semanticModel)
+        {
+            this.semanticModel = semanticModel;
+        }
 
         public IReadOnlyList<ScriptDiagnostic> Diagnostics => diagnostics;
 
@@ -27,7 +34,7 @@ public static class GraphCSharpSubsetAnalyzer
                 return;
             }
 
-            foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(node))
+            foreach (var diagnostic in GraphCSharpRestrictionAnalyzer.AnalyzeNode(node, semanticModel))
             {
                 Report(diagnostic);
             }

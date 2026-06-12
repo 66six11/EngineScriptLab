@@ -57,6 +57,15 @@ public static class GraphCSharpRuleSet
         "Color"
     };
 
+    private static readonly string[] ConstructibleValueTypeQualifiedNames =
+    {
+        "Asharia.Behavior.Vec2",
+        "Asharia.Behavior.Vec3",
+        "Asharia.Behavior.Vec4",
+        "Asharia.Behavior.Quat",
+        "Asharia.Behavior.Color"
+    };
+
     private static readonly string[] UnsupportedTypeNames =
     {
         "dynamic",
@@ -227,7 +236,33 @@ public static class GraphCSharpRuleSet
 
     public static bool IsConstructibleValueType(string typeName)
     {
-        return ContainsSimpleName(ConstructibleValueTypeNames, typeName);
+        return TryGetConstructibleValueTypeName(typeName, requireQualifiedMatch: false, out _);
+    }
+
+    public static bool IsConstructibleValueTypeSymbol(string typeName)
+    {
+        return TryGetConstructibleValueTypeName(typeName, requireQualifiedMatch: true, out _);
+    }
+
+    public static bool TryGetConstructibleValueTypeName(
+        string typeName,
+        bool requireQualifiedMatch,
+        out string canonicalTypeName)
+    {
+        var normalizedTypeName = NormalizeTypeName(typeName);
+        for (var i = 0; i < ConstructibleValueTypeNames.Length; i++)
+        {
+            if (string.Equals(ConstructibleValueTypeQualifiedNames[i], normalizedTypeName, StringComparison.Ordinal) ||
+                (!requireQualifiedMatch &&
+                 string.Equals(ConstructibleValueTypeNames[i], GetSimpleName(normalizedTypeName), StringComparison.Ordinal)))
+            {
+                canonicalTypeName = ConstructibleValueTypeNames[i];
+                return true;
+            }
+        }
+
+        canonicalTypeName = string.Empty;
+        return false;
     }
 
     public static bool IsUnsupportedType(string typeName)
@@ -281,7 +316,7 @@ public static class GraphCSharpRuleSet
 
     private static string GetSimpleName(string typeName)
     {
-        var normalized = typeName.Trim();
+        var normalized = NormalizeTypeName(typeName);
         var genericStart = normalized.IndexOf('<');
         if (genericStart >= 0)
         {
@@ -301,5 +336,14 @@ public static class GraphCSharpRuleSet
         }
 
         return normalized;
+    }
+
+    private static string NormalizeTypeName(string typeName)
+    {
+        const string globalPrefix = "global::";
+        var normalized = typeName.Trim();
+        return normalized.StartsWith(globalPrefix, StringComparison.Ordinal)
+            ? normalized.Substring(globalPrefix.Length)
+            : normalized;
     }
 }

@@ -91,6 +91,143 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
+    public void ParseText_WhenRegisteredFunctionUsesTypeAlias_ReturnsNoDiagnostics()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+            using GameInput = Asharia.Behavior.Input;
+
+            namespace com.game;
+
+            [Behavior("com.game.AliasedInputMove")]
+            public sealed partial class AliasedInputMove : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(float delta)
+                {
+                    if (GameInput.KeyDown(Key.W))
+                    {
+                        return;
+                    }
+                }
+            }
+            """,
+            "AliasedInputMove.ash.cs");
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ParseText_WhenLocalTypeSpoofsRegisteredFunctionName_ReturnsAgc0003()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            namespace com.game;
+
+            public enum Key
+            {
+                W
+            }
+
+            public static class Input
+            {
+                public static bool KeyDown(Key key) => true;
+            }
+
+            [Asharia.Behavior.Behavior("com.game.SpoofedInputMove")]
+            public sealed partial class SpoofedInputMove : Asharia.Behavior.BehaviorComponent
+            {
+                [Asharia.Behavior.Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(float delta)
+                {
+                    if (Input.KeyDown(Key.W))
+                    {
+                        return;
+                    }
+                }
+            }
+            """,
+            "SpoofedInputMove.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0003" &&
+            diagnostic.Message.Contains("com.game.Input.KeyDown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ParseText_WhenRegisteredValueTypeUsesTypeAlias_ReturnsNoDiagnostics()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+            using Offset = Asharia.Behavior.Vec3;
+
+            namespace com.game;
+
+            [Behavior("com.game.AliasedOffsetMove")]
+            public sealed partial class AliasedOffsetMove : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(float delta)
+                {
+                    Transform.Translate(Self, new Offset(0f, 0f, Speed * delta));
+                }
+            }
+            """,
+            "AliasedOffsetMove.ash.cs");
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void ParseText_WhenLocalTypeSpoofsRegisteredValueType_ReturnsAgc0009()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            public sealed class Vec3
+            {
+                public Vec3(float x, float y, float z)
+                {
+                }
+            }
+
+            [Behavior("com.game.SpoofedVec3Move")]
+            public sealed partial class SpoofedVec3Move : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(float delta)
+                {
+                    Transform.Translate(Self, new Vec3(0f, 0f, Speed * delta));
+                }
+            }
+            """,
+            "SpoofedVec3Move.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0009" &&
+            diagnostic.Message.Contains("com.game.Vec3", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ParseText_WhenScriptDeclaresStaticField_ReturnsAgc0001()
     {
         var result = GraphCSharpScriptParser.ParseText(

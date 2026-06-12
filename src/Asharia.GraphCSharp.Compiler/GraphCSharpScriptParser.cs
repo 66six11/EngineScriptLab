@@ -22,7 +22,7 @@ public static class GraphCSharpScriptParser
 
         if (!diagnostics.Any(diagnostic => diagnostic.Severity == "Error"))
         {
-            diagnostics.AddRange(GraphCSharpSubsetAnalyzer.Analyze(root));
+            diagnostics.AddRange(GraphCSharpSubsetAnalyzer.Analyze(tree));
         }
 
         var behaviorClass = FindBehaviorClass(root);

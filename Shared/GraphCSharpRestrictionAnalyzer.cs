@@ -46,7 +46,9 @@ public static class GraphCSharpRestrictionAnalyzer
         .Distinct()
         .ToArray();
 
-    public static IReadOnlyList<GraphCSharpRestrictionDiagnostic> AnalyzeNode(SyntaxNode node)
+    public static IReadOnlyList<GraphCSharpRestrictionDiagnostic> AnalyzeNode(
+        SyntaxNode node,
+        SemanticModel? semanticModel = null)
     {
         var diagnostics = new List<GraphCSharpRestrictionDiagnostic>();
 
@@ -59,7 +61,7 @@ public static class GraphCSharpRestrictionAnalyzer
         switch (node)
         {
             case InvocationExpressionSyntax invocation:
-                AnalyzeInvocation(invocation, diagnostics);
+                AnalyzeInvocation(invocation, semanticModel, diagnostics);
                 break;
 
             case TypeSyntax type:
@@ -71,7 +73,7 @@ public static class GraphCSharpRestrictionAnalyzer
                 break;
 
             case ObjectCreationExpressionSyntax objectCreation:
-                AnalyzeObjectCreation(objectCreation, diagnostics);
+                AnalyzeObjectCreation(objectCreation, semanticModel, diagnostics);
                 break;
 
             case ImplicitObjectCreationExpressionSyntax implicitObjectCreation:
@@ -87,14 +89,11 @@ public static class GraphCSharpRestrictionAnalyzer
 
     private static void AnalyzeInvocation(
         InvocationExpressionSyntax invocation,
+        SemanticModel? semanticModel,
         ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
     {
-        if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
-        {
-            return;
-        }
-
-        if (IsReflectionGetCall(memberAccess))
+        if (invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
+            IsReflectionGetCall(memberAccess))
         {
             diagnostics.Add(new GraphCSharpRestrictionDiagnostic(
                 invocation,
@@ -103,8 +102,11 @@ public static class GraphCSharpRestrictionAnalyzer
             return;
         }
 
-        var csharpName = memberAccess.ToString();
-        if (GraphCSharpBindingRegistry.TryGetFunctionId(csharpName, out _))
+        if (GraphCSharpBindingRegistry.TryResolveFunctionId(
+                invocation,
+                semanticModel,
+                out _,
+                out var csharpName))
         {
             return;
         }
@@ -173,10 +175,13 @@ public static class GraphCSharpRestrictionAnalyzer
 
     private static void AnalyzeObjectCreation(
         ObjectCreationExpressionSyntax objectCreation,
+        SemanticModel? semanticModel,
         ICollection<GraphCSharpRestrictionDiagnostic> diagnostics)
     {
-        var typeName = GetTypeName(objectCreation.Type);
-        if (GraphCSharpRuleSet.IsConstructibleValueType(typeName))
+        var typeName = GetObjectCreationTypeName(objectCreation, semanticModel, out var isSymbolName);
+        if (isSymbolName
+                ? GraphCSharpRuleSet.IsConstructibleValueTypeSymbol(typeName)
+                : GraphCSharpRuleSet.IsConstructibleValueType(typeName))
         {
             return;
         }
@@ -185,6 +190,25 @@ public static class GraphCSharpRestrictionAnalyzer
             objectCreation,
             GraphCSharpRuleSet.UnsupportedAllocationId,
             GraphCSharpRuleSet.GetUnsupportedAllocationMessage(typeName)));
+    }
+
+    private static string GetObjectCreationTypeName(
+        ObjectCreationExpressionSyntax objectCreation,
+        SemanticModel? semanticModel,
+        out bool isSymbolName)
+    {
+        if (semanticModel is not null)
+        {
+            var type = semanticModel.GetTypeInfo(objectCreation).Type;
+            if (type is not null)
+            {
+                isSymbolName = true;
+                return type.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat);
+            }
+        }
+
+        isSymbolName = false;
+        return GetTypeName(objectCreation.Type);
     }
 
     private static bool IsReflectionGetCall(MemberAccessExpressionSyntax memberAccess)

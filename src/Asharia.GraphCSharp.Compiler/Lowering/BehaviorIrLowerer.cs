@@ -30,13 +30,14 @@ public static class BehaviorIrLowerer
 
         var tree = CSharpSyntaxTree.ParseText(source, path: Path.GetFullPath(path));
         var root = tree.GetCompilationUnitRoot();
+        var semanticModel = GraphCSharpSemanticModelFactory.CreateSemanticModel(tree);
         var behaviorClass = FindBehaviorClass(root)
             ?? throw new InvalidOperationException("Cannot locate behavior class.");
 
         return AssignDebugSites(new BehaviorIrModule(
             parseResult.Behavior.Id,
             LowerFields(behaviorClass, parseResult.Behavior),
-            LowerFunctions(behaviorClass, parseResult.Behavior)));
+            LowerFunctions(behaviorClass, parseResult.Behavior, semanticModel)));
     }
 
     private static BehaviorIrModule AssignDebugSites(BehaviorIrModule module)
@@ -174,7 +175,8 @@ public static class BehaviorIrLowerer
 
     private static IReadOnlyList<BehaviorIrFunction> LowerFunctions(
         ClassDeclarationSyntax behaviorClass,
-        ScriptBehaviorSummary behavior)
+        ScriptBehaviorSummary behavior,
+        SemanticModel semanticModel)
     {
         var fieldIdsByName = behavior.Fields
             .Where(field => field.FieldId is not null)
@@ -182,15 +184,16 @@ public static class BehaviorIrLowerer
 
         return behaviorClass.Members
             .OfType<MethodDeclarationSyntax>()
-            .Select(method => LowerFunction(method, fieldIdsByName))
+            .Select(method => LowerFunction(method, fieldIdsByName, semanticModel))
             .ToArray();
     }
 
     private static BehaviorIrFunction LowerFunction(
         MethodDeclarationSyntax method,
-        IReadOnlyDictionary<string, FieldId> fieldIdsByName)
+        IReadOnlyDictionary<string, FieldId> fieldIdsByName,
+        SemanticModel semanticModel)
     {
-        var builder = new FunctionBuilder(fieldIdsByName, GetSourceSpan(method));
+        var builder = new FunctionBuilder(fieldIdsByName, semanticModel, GetSourceSpan(method));
 
         if (method.Body is not null)
         {
@@ -224,6 +227,7 @@ public static class BehaviorIrLowerer
     private sealed class FunctionBuilder
     {
         private readonly IReadOnlyDictionary<string, FieldId> fieldIdsByName;
+        private readonly SemanticModel semanticModel;
         private readonly BehaviorSourceSpan defaultSource;
         private readonly List<MutableBlock> blocks = new();
         private int tempIndex;
@@ -232,9 +236,11 @@ public static class BehaviorIrLowerer
 
         public FunctionBuilder(
             IReadOnlyDictionary<string, FieldId> fieldIdsByName,
+            SemanticModel semanticModel,
             BehaviorSourceSpan defaultSource)
         {
             this.fieldIdsByName = fieldIdsByName;
+            this.semanticModel = semanticModel;
             this.defaultSource = defaultSource;
             currentBlock = CreateBlock("entry");
         }
@@ -433,9 +439,21 @@ public static class BehaviorIrLowerer
 
             return EmitValue(target => new BehaviorIrMakeStruct(
                 target,
-                objectCreation.Type.ToString(),
+                GetObjectCreationTypeName(objectCreation),
                 arguments,
                 GetSourceSpan(objectCreation)));
+        }
+
+        private string GetObjectCreationTypeName(ObjectCreationExpressionSyntax objectCreation)
+        {
+            var type = semanticModel.GetTypeInfo(objectCreation).Type;
+            return type is not null &&
+                GraphCSharpRuleSet.TryGetConstructibleValueTypeName(
+                    type.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
+                    requireQualifiedMatch: true,
+                    out var canonicalTypeName)
+                ? canonicalTypeName
+                : objectCreation.Type.ToString();
         }
 
         private string LowerInvocation(InvocationExpressionSyntax invocation, bool emitResult)
@@ -449,9 +467,13 @@ public static class BehaviorIrLowerer
                 .Select(argument => LowerExpression(argument.Expression))
                 .ToArray();
             var functionName = invocation.Expression.ToString();
-            if (!GraphCSharpBindingRegistry.TryGetFunctionId(functionName, out var functionId))
+            if (!GraphCSharpBindingRegistry.TryResolveFunctionId(
+                    invocation,
+                    semanticModel,
+                    out var functionId,
+                    out var resolvedFunctionName))
             {
-                functionId = new FunctionId(functionName);
+                functionId = new FunctionId(resolvedFunctionName.Length == 0 ? functionName : resolvedFunctionName);
             }
 
             if (emitResult)
@@ -478,14 +500,12 @@ public static class BehaviorIrLowerer
         {
             value = string.Empty;
 
-            if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess ||
-                memberAccess.Expression.ToString() != "GraphDebug")
-            {
-                return false;
-            }
-
-            var methodName = memberAccess.Name.Identifier.ValueText;
-            if (methodName is not ("Inspect" or "Watch"))
+            if (!GraphCSharpBindingRegistry.TryResolveFunctionId(
+                    invocation,
+                    semanticModel,
+                    out var functionId,
+                    out _) ||
+                functionId.Value is not ("asharia.debug.inspect" or "asharia.debug.watch"))
             {
                 return false;
             }
@@ -504,7 +524,7 @@ public static class BehaviorIrLowerer
             currentBlock.Instructions.Add(new BehaviorIrDebugWatch(
                 watchName,
                 value,
-                methodName == "Watch" && !emitResult,
+                functionId.Value == "asharia.debug.watch" && !emitResult,
                 GetSourceSpan(invocation)));
 
             return true;
