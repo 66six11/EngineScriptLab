@@ -37,44 +37,46 @@ public abstract record BehaviorIrInstruction(BehaviorSourceSpan Source)
     public bool Observable { get; init; } = true;
 }
 
-public abstract record BehaviorIrValueInstruction(string Target, BehaviorSourceSpan Source)
+public abstract record BehaviorIrValueInstruction(string Target, string Type, BehaviorSourceSpan Source)
     : BehaviorIrInstruction(Source);
 
-public sealed record BehaviorIrLoadConst(string Target, string Value, BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+public sealed record BehaviorIrLoadConst(string Target, string Type, string Value, BehaviorSourceSpan Source)
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
-public sealed record BehaviorIrLoadEnum(string Target, string Value, BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+public sealed record BehaviorIrLoadEnum(string Target, string Type, string Value, BehaviorSourceSpan Source)
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
-public sealed record BehaviorIrLoadField(string Target, FieldId FieldId, string FieldName, BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+public sealed record BehaviorIrLoadField(string Target, string Type, FieldId FieldId, string FieldName, BehaviorSourceSpan Source)
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
-public sealed record BehaviorIrLoadLocal(string Target, string LocalName, BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+public sealed record BehaviorIrLoadLocal(string Target, string Type, string LocalName, BehaviorSourceSpan Source)
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
-public sealed record BehaviorIrLoadSelf(string Target, BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+public sealed record BehaviorIrLoadSelf(string Target, string Type, BehaviorSourceSpan Source)
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
-public sealed record BehaviorIrLoadMember(string Target, string Member, BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+public sealed record BehaviorIrLoadMember(string Target, string Type, string Member, BehaviorSourceSpan Source)
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
 public sealed record BehaviorIrBinaryOp(
     string Target,
+    string Type,
     string Operator,
     string Left,
     string Right,
     BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
 public sealed record BehaviorIrMakeStruct(
     string Target,
     string Type,
     IReadOnlyList<string> Arguments,
     BehaviorSourceSpan Source)
-    : BehaviorIrValueInstruction(Target, Source);
+    : BehaviorIrValueInstruction(Target, Type, Source);
 
 public sealed record BehaviorIrCallFunction(
     string? Target,
+    string? ReturnType,
     FunctionId FunctionId,
     IReadOnlyList<string> Arguments,
     BehaviorSourceSpan Source)

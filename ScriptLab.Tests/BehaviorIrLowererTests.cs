@@ -200,6 +200,44 @@ public sealed class BehaviorIrLowererTests
         Assert.Equal("Vec3", declareLocal.Type);
     }
 
+    [Fact]
+    public void LowerText_WhenValueExpressionsAreLowered_CarriesCanonicalIrValueTypes()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildTypedValueScript(),
+            "TypedValues.ash.cs");
+
+        var instructions = module.Functions
+            .SelectMany(function => function.Blocks)
+            .SelectMany(block => block.Instructions)
+            .ToArray();
+
+        Assert.All(
+            instructions.OfType<BehaviorIrLoadConst>(),
+            loadConst => Assert.Equal("float", loadConst.Type));
+        Assert.Equal("Key", instructions.OfType<BehaviorIrLoadEnum>().Single().Type);
+        Assert.Equal("EntityRef", instructions.OfType<BehaviorIrLoadSelf>().Single().Type);
+        Assert.Equal("float", instructions.OfType<BehaviorIrLoadField>().Single().Type);
+        Assert.Equal("float", instructions
+            .OfType<BehaviorIrLoadLocal>()
+            .Single(loadLocal => loadLocal.LocalName == "delta")
+            .Type);
+        Assert.Equal("Vec3", instructions
+            .OfType<BehaviorIrLoadLocal>()
+            .Single(loadLocal => loadLocal.LocalName == "offset")
+            .Type);
+        Assert.Equal("float", instructions.OfType<BehaviorIrBinaryOp>().Single().Type);
+        Assert.Equal("Vec3", instructions.OfType<BehaviorIrMakeStruct>().Single().Type);
+        Assert.Equal("bool", instructions
+            .OfType<BehaviorIrCallFunction>()
+            .Single(call => call.Target is not null)
+            .ReturnType);
+        Assert.Null(instructions
+            .OfType<BehaviorIrCallFunction>()
+            .Single(call => call.Target is null)
+            .ReturnType);
+    }
+
     private static string GetSamplePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -358,6 +396,31 @@ public sealed class BehaviorIrLowererTests
                 {
                     var offset = new Vec3(0f, 0f, delta);
                     Transform.Translate(Self, offset);
+                }
+            }
+            """;
+    }
+
+    private static string BuildTypedValueScript()
+    {
+        return """
+            using Asharia.Behavior;
+            using Offset = Asharia.Behavior.Vec3;
+
+            namespace com.game;
+
+            public class TypedValues : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(float delta)
+                {
+                    Offset offset = new Offset(0f, 0f, Speed * delta);
+                    if (Input.KeyDown(Key.W))
+                    {
+                        Transform.Translate(Self, offset);
+                    }
                 }
             }
             """;

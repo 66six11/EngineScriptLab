@@ -381,7 +381,11 @@ public static class BehaviorIrLowerer
             return expression switch
             {
                 LiteralExpressionSyntax literal => EmitValue(target =>
-                    new BehaviorIrLoadConst(target, literal.Token.Text, GetSourceSpan(literal))),
+                    new BehaviorIrLoadConst(
+                        target,
+                        GetExpressionType(literal, "var"),
+                        literal.Token.Text,
+                        GetSourceSpan(literal))),
                 IdentifierNameSyntax identifier => LowerIdentifier(identifier),
                 MemberAccessExpressionSyntax memberAccess => LowerMemberAccess(memberAccess),
                 BinaryExpressionSyntax binary => LowerBinary(binary),
@@ -398,15 +402,27 @@ public static class BehaviorIrLowerer
 
             if (name == "Self")
             {
-                return EmitValue(target => new BehaviorIrLoadSelf(target, GetSourceSpan(identifier)));
+                return EmitValue(target => new BehaviorIrLoadSelf(
+                    target,
+                    GetExpressionType(identifier, "EntityRef"),
+                    GetSourceSpan(identifier)));
             }
 
             if (fieldIdsByName.TryGetValue(name, out var fieldId))
             {
-                return EmitValue(target => new BehaviorIrLoadField(target, fieldId, name, GetSourceSpan(identifier)));
+                return EmitValue(target => new BehaviorIrLoadField(
+                    target,
+                    GetExpressionType(identifier, "var"),
+                    fieldId,
+                    name,
+                    GetSourceSpan(identifier)));
             }
 
-            return EmitValue(target => new BehaviorIrLoadLocal(target, name, GetSourceSpan(identifier)));
+            return EmitValue(target => new BehaviorIrLoadLocal(
+                target,
+                GetExpressionType(identifier, "var"),
+                name,
+                GetSourceSpan(identifier)));
         }
 
         private string LowerMemberAccess(MemberAccessExpressionSyntax memberAccess)
@@ -415,12 +431,14 @@ public static class BehaviorIrLowerer
             {
                 return EmitValue(target => new BehaviorIrLoadEnum(
                     target,
+                    GetExpressionType(memberAccess, "Key"),
                     memberAccess.ToString(),
                     GetSourceSpan(memberAccess)));
             }
 
             return EmitValue(target => new BehaviorIrLoadMember(
                 target,
+                GetExpressionType(memberAccess, "var"),
                 memberAccess.ToString(),
                 GetSourceSpan(memberAccess)));
         }
@@ -431,6 +449,7 @@ public static class BehaviorIrLowerer
             var right = LowerExpression(binary.Right);
             return EmitValue(target => new BehaviorIrBinaryOp(
                 target,
+                GetExpressionType(binary, "var"),
                 GetBinaryOperator(binary),
                 left,
                 right,
@@ -449,6 +468,13 @@ public static class BehaviorIrLowerer
                 GetObjectCreationTypeName(objectCreation),
                 arguments,
                 GetSourceSpan(objectCreation)));
+        }
+
+        private string GetExpressionType(ExpressionSyntax expression, string fallback)
+        {
+            return GraphCSharpTypeNameResolver.Resolve(
+                semanticModel.GetTypeInfo(expression).Type,
+                fallback);
         }
 
         private string GetObjectCreationTypeName(ObjectCreationExpressionSyntax objectCreation)
@@ -474,11 +500,12 @@ public static class BehaviorIrLowerer
                 .Select(argument => LowerExpression(argument.Expression))
                 .ToArray();
             var functionName = invocation.Expression.ToString();
-            var functionId = GraphCSharpBindingRegistry.TryResolveFunctionBinding(
+            var hasBinding = GraphCSharpBindingRegistry.TryResolveFunctionBinding(
                 invocation,
                 semanticModel,
                 out var binding,
-                out var resolvedFunctionName)
+                out var resolvedFunctionName);
+            var functionId = hasBinding
                 ? binding.FunctionId
                 : new FunctionId(resolvedFunctionName.Length == 0 ? functionName : resolvedFunctionName);
 
@@ -486,6 +513,7 @@ public static class BehaviorIrLowerer
             {
                 return EmitValue(target => new BehaviorIrCallFunction(
                     target,
+                    hasBinding ? GetInvocationReturnType(invocation, binding) : GetExpressionType(invocation, "var"),
                     functionId,
                     arguments,
                     GetSourceSpan(invocation)));
@@ -493,10 +521,25 @@ public static class BehaviorIrLowerer
 
             currentBlock.Instructions.Add(new BehaviorIrCallFunction(
                 null,
+                null,
                 functionId,
                 arguments,
                 GetSourceSpan(invocation)));
             return string.Empty;
+        }
+
+        private string? GetInvocationReturnType(
+            InvocationExpressionSyntax invocation,
+            GraphCSharpFunctionBinding binding)
+        {
+            if (binding.ReturnType is null)
+            {
+                return null;
+            }
+
+            return binding.ReturnType == "*"
+                ? GetExpressionType(invocation, "var")
+                : binding.ReturnType;
         }
 
         private bool TryLowerGraphDebugInvocation(

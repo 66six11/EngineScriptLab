@@ -25,6 +25,13 @@ internal static class GraphCSharpTypeNameResolver
         return Canonicalize(typeSyntax.ToString());
     }
 
+    public static string Resolve(ITypeSymbol? typeSymbol, string fallback)
+    {
+        return typeSymbol is null
+            ? Canonicalize(fallback)
+            : Canonicalize(typeSymbol.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat));
+    }
+
     public static string ResolveLocal(
         VariableDeclaratorSyntax variable,
         TypeSyntax declarationType,
