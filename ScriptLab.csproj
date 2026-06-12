@@ -12,11 +12,18 @@
         <Compile Remove="ScriptLab.ScriptAssets/**/*.cs" />
         <Compile Remove="ScriptLab.Analyzers/**/*.cs" />
         <Compile Remove="Samples/**/*.ash.cs" />
+        <Compile Remove="Shared/**/*.cs" />
+        <Compile Remove="Mock/**/*.cs" />
+        <Compile Remove="src/**/*.cs" />
         <None Include="Samples/**/*.ash.cs" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+        <ProjectReference Include="src\Asharia.GraphCSharp.Compiler\Asharia.GraphCSharp.Compiler.csproj" />
+        <ProjectReference Include="src\Asharia.GraphCSharp.Runtime\Asharia.GraphCSharp.Runtime.csproj" />
+        <ProjectReference Include="src\Asharia.ScriptLab.Debug\Asharia.ScriptLab.Debug.csproj" />
+        <ProjectReference Include="src\Asharia.ScriptLab.Server\Asharia.ScriptLab.Server.csproj" />
+        <ProjectReference Include="src\Asharia.ScriptLab.MockEngine\Asharia.ScriptLab.MockEngine.csproj" />
     </ItemGroup>
 
 </Project>

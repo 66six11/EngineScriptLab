@@ -16,6 +16,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\ScriptLab.csproj" />
+        <ProjectReference Include="..\src\Asharia.ScriptLab.MockEngine\Asharia.ScriptLab.MockEngine.csproj" />
         <ProjectReference Include="..\ScriptLab.Analyzers\ScriptLab.Analyzers.csproj"
                           OutputItemType="Analyzer"
                           ReferenceOutputAssembly="false" />

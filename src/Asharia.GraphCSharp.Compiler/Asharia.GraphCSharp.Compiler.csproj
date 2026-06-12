@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Asharia.GraphCSharp.Abstractions\Asharia.GraphCSharp.Abstractions.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\..\Shared\GraphCSharpRuleSet.cs" Link="Shared\GraphCSharpRuleSet.cs" />
+        <Compile Include="..\..\Shared\GraphCSharpBindingRegistry.cs" Link="Shared\GraphCSharpBindingRegistry.cs" />
+        <Compile Include="..\..\Shared\GraphCSharpRestrictionAnalyzer.cs" Link="Shared\GraphCSharpRestrictionAnalyzer.cs" />
+    </ItemGroup>
+
+</Project>
