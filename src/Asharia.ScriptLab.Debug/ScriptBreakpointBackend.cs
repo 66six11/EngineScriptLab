@@ -29,10 +29,10 @@ public interface IScriptBreakpointBackend
 
 public sealed class ProbeScriptBreakpointBackend : IScriptBreakpointBackend
 {
-    private readonly DebugScriptHost host;
+    private readonly DotnetDebugHost host;
     private readonly Dictionary<string, HashSet<string>> debugSiteIdsBySourcePath;
 
-    public ProbeScriptBreakpointBackend(DebugScriptHost host)
+    public ProbeScriptBreakpointBackend(DotnetDebugHost host)
     {
         this.host = host;
         debugSiteIdsBySourcePath = new Dictionary<string, HashSet<string>>(GetPathComparer());

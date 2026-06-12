@@ -37,7 +37,7 @@ public static class ScriptDebugLoop
         var emit = SourceInstrumentedDebugCompiler.EmitFile(scriptPath, outputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
         var session = new DebugSessionCore(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
         session.SetTraceObservationEnabled(options.ObserveTrace);
         session.SetWatchObservationEnabled(options.ObserveWatch);

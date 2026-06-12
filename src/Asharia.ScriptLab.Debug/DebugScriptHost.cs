@@ -16,14 +16,14 @@ public sealed record DebugInspectableField(
 
 public sealed record DebugRuntimeProbeEvent(long Sequence, string Kind, int ProbeId, string? PinId, object? Value);
 
-public sealed class DebugScriptHost
+public class DotnetDebugHost
 {
     private readonly AssemblyLoadContext loadContext;
     private readonly Assembly assembly;
     private readonly DebugProbeManifest? probeManifest;
     private readonly Dictionary<DebugScriptInstanceKey, DebugScriptInstance> instances = new();
 
-    private DebugScriptHost(
+    protected DotnetDebugHost(
         AssemblyLoadContext loadContext,
         Assembly assembly,
         DebugProbeManifest? probeManifest)
@@ -39,20 +39,34 @@ public sealed class DebugScriptHost
 
     public DebugProbeManifest? ProbeManifest => probeManifest;
 
-    public static DebugScriptHost Load(DebugScriptEmitResult emit)
+    public static DotnetDebugHost Load(DebugScriptEmitResult emit)
     {
         return Load(emit.AssemblyPath, emit.PdbPath, emit.ProbeManifest);
     }
 
-    public static DebugScriptHost Load(string assemblyPath, string? pdbPath = null)
+    public static DotnetDebugHost Load(string assemblyPath, string? pdbPath = null)
     {
         return Load(assemblyPath, pdbPath, probeManifest: null);
     }
 
-    public static DebugScriptHost Load(
+    public static DotnetDebugHost Load(
         string assemblyPath,
         string? pdbPath,
         DebugProbeManifest? probeManifest)
+    {
+        return LoadCore(
+            assemblyPath,
+            pdbPath,
+            probeManifest,
+            (loadContext, assembly, manifest) => new DotnetDebugHost(loadContext, assembly, manifest));
+    }
+
+    protected static THost LoadCore<THost>(
+        string assemblyPath,
+        string? pdbPath,
+        DebugProbeManifest? probeManifest,
+        Func<AssemblyLoadContext, Assembly, DebugProbeManifest?, THost> createHost)
+        where THost : DotnetDebugHost
     {
         var assemblyBytes = File.ReadAllBytes(assemblyPath);
         var pdbBytes = !string.IsNullOrWhiteSpace(pdbPath) && File.Exists(pdbPath)
@@ -67,7 +81,7 @@ public sealed class DebugScriptHost
                 new MemoryStream(assemblyBytes),
                 new MemoryStream(pdbBytes));
 
-        return new DebugScriptHost(loadContext, assembly, probeManifest);
+        return createHost(loadContext, assembly, probeManifest);
     }
 
     public DebugScriptInstance MountBehavior(int entityId, string behaviorId)
@@ -277,6 +291,39 @@ public sealed class DebugScriptHost
     }
 
     private readonly record struct DebugScriptInstanceKey(int EntityId, string BehaviorId);
+}
+
+public sealed class DebugScriptHost : DotnetDebugHost
+{
+    private DebugScriptHost(
+        AssemblyLoadContext loadContext,
+        Assembly assembly,
+        DebugProbeManifest? probeManifest)
+        : base(loadContext, assembly, probeManifest)
+    {
+    }
+
+    public static new DebugScriptHost Load(DebugScriptEmitResult emit)
+    {
+        return Load(emit.AssemblyPath, emit.PdbPath, emit.ProbeManifest);
+    }
+
+    public static new DebugScriptHost Load(string assemblyPath, string? pdbPath = null)
+    {
+        return Load(assemblyPath, pdbPath, probeManifest: null);
+    }
+
+    public static new DebugScriptHost Load(
+        string assemblyPath,
+        string? pdbPath,
+        DebugProbeManifest? probeManifest)
+    {
+        return LoadCore(
+            assemblyPath,
+            pdbPath,
+            probeManifest,
+            (loadContext, assembly, manifest) => new DebugScriptHost(loadContext, assembly, manifest));
+    }
 }
 
 public sealed class DebugScriptInstance

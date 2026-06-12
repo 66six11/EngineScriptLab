@@ -126,7 +126,7 @@ public sealed class DapDebugSessionRuntime
     }
 
     public ScriptPausedSnapshot ReadPausedSnapshot(
-        DebugScriptHost host,
+        DotnetDebugHost host,
         ScriptStoppedEvent stoppedEvent,
         int entityId)
     {

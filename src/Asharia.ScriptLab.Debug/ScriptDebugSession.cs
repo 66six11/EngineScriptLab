@@ -634,7 +634,7 @@ public class DebugSessionCore
     }
 
     public ScriptPausedSnapshot ReadPausedSnapshot(
-        DebugScriptHost host,
+        DotnetDebugHost host,
         ScriptStoppedEvent stoppedEvent,
         int entityId,
         IScriptFrameVariableBackend? frameVariables = null)
@@ -1086,7 +1086,7 @@ public class DebugSessionCore
             new[] { ToCandidate(indexedSite) });
     }
 
-    private ScriptDebugScope CreateInspectorScope(DebugScriptHost host, int entityId)
+    private ScriptDebugScope CreateInspectorScope(DotnetDebugHost host, int entityId)
     {
         var fields = host.GetFields(entityId, debugMap.BehaviorId);
         return new ScriptDebugScope(

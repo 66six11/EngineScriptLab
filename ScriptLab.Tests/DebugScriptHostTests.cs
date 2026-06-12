@@ -5,6 +5,19 @@ namespace ScriptLab.Tests;
 public sealed class DebugScriptHostTests
 {
     [Fact]
+    public void Load_WhenUsingCompatibilityWrapper_ReturnsDotnetDebugHost()
+    {
+        var outputDirectory = CreateOutputDirectory();
+        var emit = DebugScriptCompiler.EmitFile(
+            GetSamplePath("PlayerMove.ash.cs"),
+            outputDirectory);
+
+        DotnetDebugHost host = DebugScriptHost.Load(emit);
+
+        Assert.Equal(emit.ProbeManifest.BehaviorId, host.ProbeManifest?.BehaviorId);
+    }
+
+    [Fact]
     public void MountBehavior_WhenPublicFieldExists_ReadsAndWritesFieldByEntityBehaviorAndFieldId()
     {
         var outputDirectory = CreateOutputDirectory();

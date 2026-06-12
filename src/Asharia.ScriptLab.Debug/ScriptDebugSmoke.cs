@@ -53,7 +53,7 @@ public static class ScriptDebugSmoke
         var emit = SourceInstrumentedDebugCompiler.EmitFile(fullPath, fullOutputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
         var session = new DebugSessionCore(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
         session.SetTraceObservationEnabled(options.ObserveTrace);
         session.SetWatchObservationEnabled(options.ObserveWatch);
