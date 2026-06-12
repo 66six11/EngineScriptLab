@@ -3,14 +3,14 @@ namespace ScriptLab;
 public sealed class DapScriptStoppedEventResolver
 {
     private readonly DapDebugSessionClient client;
-    private readonly ScriptDebugSession session;
+    private readonly DebugSessionCore session;
 
-    public DapScriptStoppedEventResolver(IDapRequestClient client, ScriptDebugSession session)
+    public DapScriptStoppedEventResolver(IDapRequestClient client, DebugSessionCore session)
         : this(new DapDebugSessionClient(client), session)
     {
     }
 
-    public DapScriptStoppedEventResolver(DapDebugSessionClient client, ScriptDebugSession session)
+    public DapScriptStoppedEventResolver(DapDebugSessionClient client, DebugSessionCore session)
     {
         this.client = client;
         this.session = session;

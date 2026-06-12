@@ -33,7 +33,7 @@ public sealed partial class ScriptLabJsonRpcServer
         public DebugScriptEmitResult Emit =>
             Debug?.Emit ?? throw new InvalidOperationException("No debug session is prepared. Call prepareDebugSession first.");
 
-        public ScriptDebugSession Session =>
+        public DebugSessionCore Session =>
             Debug?.Session ?? throw new InvalidOperationException("No debug session is prepared. Call prepareDebugSession first.");
 
         public DebugScriptHost Host =>
@@ -89,7 +89,7 @@ public sealed partial class ScriptLabJsonRpcServer
 
     private sealed record DebugSessionState(
         DebugScriptEmitResult Emit,
-        ScriptDebugSession Session,
+        DebugSessionCore Session,
         DebugScriptHost Host,
         ProbeScriptBreakpointBackend Backend);
 }

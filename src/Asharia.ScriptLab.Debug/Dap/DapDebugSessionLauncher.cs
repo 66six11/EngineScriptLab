@@ -43,7 +43,7 @@ public sealed class DapDebugSessionLauncher
     }
 
     public DapDebugSessionLaunchResult Launch(
-        ScriptDebugSession session,
+        DebugSessionCore session,
         ScriptDebugMap debugMap,
         string sourcePath,
         JsonObject? initializeArguments,
@@ -59,7 +59,7 @@ public sealed class DapDebugSessionLauncher
     }
 
     public DapDebugSessionLaunchResult Attach(
-        ScriptDebugSession session,
+        DebugSessionCore session,
         ScriptDebugMap debugMap,
         string sourcePath,
         JsonObject? initializeArguments,
@@ -75,7 +75,7 @@ public sealed class DapDebugSessionLauncher
     }
 
     private DapDebugSessionLaunchResult StartSession(
-        ScriptDebugSession session,
+        DebugSessionCore session,
         ScriptDebugMap debugMap,
         string sourcePath,
         JsonObject? initializeArguments,

@@ -266,7 +266,7 @@ public sealed record ScriptLabReadVariablesResult(
     IReadOnlyList<ScriptDebugVariable> Variables);
 
 public sealed record ScriptLabDapAttachRequest(
-    ScriptDebugSession Session,
+    DebugSessionCore Session,
     ScriptDebugMap DebugMap,
     string SourcePath,
     JsonObject InitializeArguments,

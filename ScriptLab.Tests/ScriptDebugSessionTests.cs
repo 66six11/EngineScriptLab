@@ -5,6 +5,17 @@ namespace ScriptLab.Tests;
 public sealed class ScriptDebugSessionTests
 {
     [Fact]
+    public void CompatibilityWrapper_WhenConstructed_ExposesDebugSessionCore()
+    {
+        var emit = EmitPlayerMove();
+        var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
+
+        DebugSessionCore session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
+
+        Assert.Equal(emit.DebugMap.BehaviorId, session.BehaviorId);
+    }
+
+    [Fact]
     public void Constructor_WhenDebugMapSchemaVersionDoesNotMatch_Throws()
     {
         var emit = EmitPlayerMove();

@@ -10,7 +10,7 @@ public sealed record DapDebugRuntimeEventDrain(
 public sealed class DapDebugSessionRuntime
 {
     private readonly DapDebugSessionClient client;
-    private readonly ScriptDebugSession session;
+    private readonly DebugSessionCore session;
     private readonly DapScriptBreakpointBackend breakpointBackend;
     private readonly DapScriptStoppedEventResolver stoppedEventResolver;
     private readonly DapScriptFrameVariableBackend frameVariableBackend;
@@ -20,7 +20,7 @@ public sealed class DapDebugSessionRuntime
 
     public DapDebugSessionRuntime(
         IDapRequestClient client,
-        ScriptDebugSession session,
+        DebugSessionCore session,
         ScriptDebugMap debugMap,
         DapBreakpointBackendCapabilities? capabilities = null)
         : this(new DapDebugSessionClient(client), session, debugMap, capabilities)
@@ -29,7 +29,7 @@ public sealed class DapDebugSessionRuntime
 
     public DapDebugSessionRuntime(
         DapDebugSessionClient client,
-        ScriptDebugSession session,
+        DebugSessionCore session,
         ScriptDebugMap debugMap,
         DapBreakpointBackendCapabilities? capabilities = null)
     {

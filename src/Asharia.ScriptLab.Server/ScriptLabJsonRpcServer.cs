@@ -1169,7 +1169,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     {
         var emit = SourceInstrumentedDebugCompiler.EmitFile(current.ScriptPath, current.OutputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
-        var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
+        var session = new DebugSessionCore(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
         var host = DebugScriptHost.Load(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
         current.SetDebugSession(new DebugSessionState(emit, session, host, backend));

@@ -205,7 +205,7 @@ public sealed record ScriptProbeEventIngestResult(
     IReadOnlyList<ScriptDebugVariable> WatchVariables,
     ScriptTraceSnapshot TraceSnapshot);
 
-public sealed class ScriptDebugSession
+public class DebugSessionCore
 {
     private const int SupportedDebugMapSchemaVersion = 1;
 
@@ -229,12 +229,12 @@ public sealed class ScriptDebugSession
     private bool traceObservationEnabled;
     private bool watchObservationEnabled;
 
-    public ScriptDebugSession(ScriptDebugMap debugMap, string sourceText, int traceSampleCapacity = 256)
+    public DebugSessionCore(ScriptDebugMap debugMap, string sourceText, int traceSampleCapacity = 256)
         : this(debugMap, sourceText, debugMap.SourceDocumentPath, traceSampleCapacity)
     {
     }
 
-    public ScriptDebugSession(
+    public DebugSessionCore(
         ScriptDebugMap debugMap,
         string sourceText,
         string sourcePath,
@@ -1547,5 +1547,22 @@ public sealed class ScriptDebugSession
                 Anchor,
                 Binding);
         }
+    }
+}
+
+public sealed class ScriptDebugSession : DebugSessionCore
+{
+    public ScriptDebugSession(ScriptDebugMap debugMap, string sourceText, int traceSampleCapacity = 256)
+        : base(debugMap, sourceText, traceSampleCapacity)
+    {
+    }
+
+    public ScriptDebugSession(
+        ScriptDebugMap debugMap,
+        string sourceText,
+        string sourcePath,
+        int traceSampleCapacity = 256)
+        : base(debugMap, sourceText, sourcePath, traceSampleCapacity)
+    {
     }
 }
