@@ -101,7 +101,7 @@ internal sealed record PortablePdbLocalScopeInfo(
     int Length,
     IReadOnlyList<string> LocalNames);
 
-public static class DebugScriptCompiler
+public static class SourceInstrumentedDebugCompiler
 {
     private const string DebugProbeSourcePath = "Asharia.DebugProbe.g.cs";
     private const string GlobalUsingsSourcePath = "Asharia.DebugGlobals.g.cs";
@@ -380,4 +380,12 @@ public static class DebugScriptCompiler
                """;
     }
 
+}
+
+public static class DebugScriptCompiler
+{
+    public static DebugScriptEmitResult EmitFile(string scriptPath, string outputDirectory)
+    {
+        return SourceInstrumentedDebugCompiler.EmitFile(scriptPath, outputDirectory);
+    }
 }

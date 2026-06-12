@@ -34,7 +34,7 @@ public static class ScriptDebugLoop
     {
         options ??= new ScriptDebugLoopOptions();
 
-        var emit = DebugScriptCompiler.EmitFile(scriptPath, outputDirectory);
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(scriptPath, outputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
         var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
         var host = DebugScriptHost.Load(emit);

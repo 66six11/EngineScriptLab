@@ -8,6 +8,56 @@ namespace ScriptLab.Tests;
 public sealed class ScriptLabJsonRpcServerTests
 {
     [Fact]
+    public void HandleRequest_WhenLoadGraphIsCalled_DoesNotPrepareDebugSession()
+    {
+        var outputDirectory = CreateOutputDirectory();
+        var server = CreateServer();
+
+        using var response = Send(
+            server,
+            1,
+            "loadGraph",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                outputDirectory
+            });
+        var result = response.RootElement.GetProperty("result");
+
+        Assert.Equal("com.game.PlayerMove", result.GetProperty("behaviorId").GetString());
+        Assert.True(result.TryGetProperty("graph", out _));
+        Assert.False(result.TryGetProperty("debugMap", out _));
+        Assert.False(Directory.Exists(outputDirectory));
+    }
+
+    [Fact]
+    public void HandleRequest_WhenPrepareDebugSessionIsCalled_ReturnsDebugArtifacts()
+    {
+        var outputDirectory = CreateOutputDirectory();
+        var server = CreateServer();
+
+        Send(
+            server,
+            1,
+            "loadGraph",
+            new
+            {
+                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
+                outputDirectory
+            }).Dispose();
+        using var response = Send(server, 2, "prepareDebugSession", new { });
+        var result = response.RootElement.GetProperty("result");
+
+        Assert.Equal("com.game.PlayerMove", result.GetProperty("behaviorId").GetString());
+        Assert.True(File.Exists(result.GetProperty("assemblyPath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("pdbPath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("debugMapPath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("instrumentedSourcePath").GetString()));
+        Assert.True(File.Exists(result.GetProperty("probeManifestPath").GetString()));
+        Assert.Equal("com.game.PlayerMove", result.GetProperty("debugMap").GetProperty("behaviorId").GetString());
+    }
+
+    [Fact]
     public void HandleRequest_WhenRunDebugIsCalled_ReturnsStoppedPausedAndTraceState()
     {
         var server = CreateServer();

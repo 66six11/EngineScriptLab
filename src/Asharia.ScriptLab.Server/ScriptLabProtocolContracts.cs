@@ -12,6 +12,10 @@ public sealed record ScriptLabLoadGraphParams(
     string? ScriptPath = null,
     string? OutputDirectory = null);
 
+public sealed record ScriptLabPrepareDebugSessionParams(
+    string? ScriptPath = null,
+    string? OutputDirectory = null);
+
 public sealed record ScriptLabSetBlueprintBreakpointsParams(
     string? ScriptPath = null,
     string? OutputDirectory = null,
@@ -120,7 +124,19 @@ public sealed record ScriptLabLoadGraphResult(
     string OutputDirectory,
     string BehaviorId,
     BlueprintGraphModule Graph,
-    ScriptDebugMap DebugMap);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ScriptDebugMap? DebugMap = null);
+
+public sealed record ScriptLabPrepareDebugSessionResult(
+    string ScriptPath,
+    string OutputDirectory,
+    string BehaviorId,
+    ScriptDebugMap DebugMap,
+    string AssemblyPath,
+    string PdbPath,
+    string DebugMapPath,
+    string InstrumentedSourcePath,
+    string ProbeManifestPath);
 
 public sealed record ScriptLabSetBreakpointsResult(
     IReadOnlyList<ScriptBreakpointState> Breakpoints,

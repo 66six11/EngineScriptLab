@@ -9,34 +9,43 @@ public sealed partial class ScriptLabJsonRpcServer
         public ServerState(
             string scriptPath,
             string outputDirectory,
-            BlueprintGraphModule graph,
-            DebugScriptEmitResult emit,
-            ScriptDebugSession session,
-            DebugScriptHost host,
-            ProbeScriptBreakpointBackend backend)
+            string behaviorId,
+            BlueprintGraphModule graph)
         {
             ScriptPath = scriptPath;
             OutputDirectory = outputDirectory;
+            BehaviorId = behaviorId;
             Graph = graph;
-            Emit = emit;
-            Session = session;
-            Host = host;
-            Backend = backend;
         }
 
         public string ScriptPath { get; }
 
         public string OutputDirectory { get; }
 
+        public string BehaviorId { get; }
+
         public BlueprintGraphModule Graph { get; }
 
-        public DebugScriptEmitResult Emit { get; }
+        public DebugSessionState? Debug { get; private set; }
 
-        public ScriptDebugSession Session { get; }
+        public bool HasDebugSession => Debug is not null;
 
-        public DebugScriptHost Host { get; }
+        public DebugScriptEmitResult Emit =>
+            Debug?.Emit ?? throw new InvalidOperationException("No debug session is prepared. Call prepareDebugSession first.");
 
-        public ProbeScriptBreakpointBackend Backend { get; }
+        public ScriptDebugSession Session =>
+            Debug?.Session ?? throw new InvalidOperationException("No debug session is prepared. Call prepareDebugSession first.");
+
+        public DebugScriptHost Host =>
+            Debug?.Host ?? throw new InvalidOperationException("No debug session is prepared. Call prepareDebugSession first.");
+
+        public ProbeScriptBreakpointBackend Backend =>
+            Debug?.Backend ?? throw new InvalidOperationException("No debug session is prepared. Call prepareDebugSession first.");
+
+        public void SetDebugSession(DebugSessionState debug)
+        {
+            Debug = debug;
+        }
 
         public IReadOnlyList<ScriptBreakpointBackendResult> LastBackendResults { get; set; } =
             Array.Empty<ScriptBreakpointBackendResult>();
@@ -77,4 +86,10 @@ public sealed partial class ScriptLabJsonRpcServer
 
         public Exception? DebugEventPumpException { get; set; }
     }
+
+    private sealed record DebugSessionState(
+        DebugScriptEmitResult Emit,
+        ScriptDebugSession Session,
+        DebugScriptHost Host,
+        ProbeScriptBreakpointBackend Backend);
 }

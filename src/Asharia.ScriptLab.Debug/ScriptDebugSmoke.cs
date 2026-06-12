@@ -50,7 +50,7 @@ public static class ScriptDebugSmoke
         var checks = new List<ScriptDebugSmokeCheck>();
         var fullPath = Path.GetFullPath(scriptPath);
         var fullOutputDirectory = Path.GetFullPath(outputDirectory);
-        var emit = DebugScriptCompiler.EmitFile(fullPath, fullOutputDirectory);
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(fullPath, fullOutputDirectory);
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
         var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
         var host = DebugScriptHost.Load(emit);

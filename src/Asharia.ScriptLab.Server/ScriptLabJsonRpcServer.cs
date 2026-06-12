@@ -138,6 +138,8 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         return method switch
         {
             "loadGraph" => LoadGraph(ReadParams(parameters, new ScriptLabLoadGraphParams())),
+            "prepareDebugSession" => PrepareDebugSession(
+                ReadParams(parameters, new ScriptLabPrepareDebugSessionParams())),
             "resolveBlueprintBreakpoint" => ResolveBlueprintBreakpoint(
                 ReadParams(parameters, new ScriptLabResolveBlueprintBreakpointParams())),
             "resolveSourceBreakpoint" => ResolveSourceBreakpoint(
@@ -173,20 +175,12 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         var outputDirectory = ResolveOutputDirectory(parameters.OutputDirectory);
         var module = BehaviorIrLowerer.LowerFile(scriptPath);
         var graph = BlueprintGraphProjector.Project(module);
-        var emit = DebugScriptCompiler.EmitFile(scriptPath, outputDirectory);
-        var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
-        var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
-        var host = DebugScriptHost.Load(emit);
-        var backend = new ProbeScriptBreakpointBackend(host);
 
         var nextState = new ServerState(
             scriptPath,
             outputDirectory,
-            graph,
-            emit,
-            session,
-            host,
-            backend);
+            module.BehaviorId,
+            graph);
         if (previousState is not null)
         {
             ClearAttachedHostState(previousState);
@@ -198,15 +192,29 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         return new ScriptLabLoadGraphResult(
             scriptPath,
             outputDirectory,
-            emit.DebugMap.BehaviorId,
-            graph,
-            emit.DebugMap);
+            module.BehaviorId,
+            graph);
+    }
+
+    private ScriptLabPrepareDebugSessionResult PrepareDebugSession(ScriptLabPrepareDebugSessionParams parameters)
+    {
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
+        return new ScriptLabPrepareDebugSessionResult(
+            current.ScriptPath,
+            current.OutputDirectory,
+            current.Emit.DebugMap.BehaviorId,
+            current.Emit.DebugMap,
+            current.Emit.AssemblyPath,
+            current.Emit.PdbPath,
+            current.Emit.DebugMapPath,
+            current.Emit.InstrumentedSourcePath,
+            current.Emit.ProbeManifestPath);
     }
 
     private ScriptLabSetBreakpointsResult SetBlueprintBreakpoints(
         ScriptLabSetBlueprintBreakpointsParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         var graphNodeIds = parameters.GraphNodeIds ?? Array.Empty<string>();
         var breakpoints = current.Session.SetBlueprintBreakpoints(graphNodeIds);
         var backendResults = current.Session.ApplySourceBreakpoints(
@@ -219,7 +227,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptLabSetBreakpointsResult SetSourceBreakpoints(
         ScriptLabSetSourceBreakpointsParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         var sourcePath = ResolveSourcePath(parameters.SourcePath, current);
         var requests = parameters.Breakpoints ?? Array.Empty<ScriptSourceBreakpointRequest>();
         var breakpoints = current.Session.SetSourceBreakpoints(sourcePath, requests);
@@ -231,7 +239,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptBreakpointBinding ResolveBlueprintBreakpoint(
         ScriptLabResolveBlueprintBreakpointParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         if (string.IsNullOrWhiteSpace(parameters.GraphNodeId))
         {
             throw new InvalidOperationException("graphNodeId is required.");
@@ -243,7 +251,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptBreakpointBinding ResolveSourceBreakpoint(
         ScriptLabResolveSourceBreakpointParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         return current.Session.ResolveSourceBreakpoint(
             ResolveSourcePath(parameters.SourcePath, current),
             parameters.Line,
@@ -252,13 +260,13 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private ScriptLabGetBreakpointsResult GetBreakpoints(ScriptLabGetBreakpointsParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         return new ScriptLabGetBreakpointsResult(current.Session.Breakpoints, current.LastBackendResults);
     }
 
     private ScriptLabRunDebugResult RunDebug(ScriptLabRunDebugParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         var hasExplicitSourceBreakpoints = parameters.SourceBreakpoints is not null;
         var requestedGraphNodeIds = GetRequestedGraphNodeIds(
             parameters,
@@ -338,7 +346,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptLabDebugHostRegistrationResult RegisterDebugHost(
         ScriptLabRegisterDebugHostParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         var host = CreateRegisteredDebugHost(current.Emit, parameters);
         current.RegisteredHost = host;
 
@@ -352,7 +360,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptLabDebugHostValidationResult ValidateDebugHost(
         ScriptLabValidateDebugHostParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         var hostKind = ResolveCppClrHostKind(parameters.HostKind);
         var bridgeManifestPath = ResolveBridgeManifestPath(parameters.BridgeManifestPath, current.Emit)
                                  ?? throw new InvalidOperationException(
@@ -385,7 +393,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private ScriptLabDebugHostAttachmentResult AttachDebugHost(ScriptLabAttachDebugHostParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureDebugState(parameters.ScriptPath, parameters.OutputDirectory);
         var attachTarget = CreateDapAttachTarget(current, parameters);
         var attachArguments = CreateDapAttachArguments(attachTarget);
         ClearPausedState(current);
@@ -447,7 +455,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptLabDebugHostDisconnectResult DisconnectDebugHost(
         ScriptLabDisconnectDebugHostParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
         var terminateDebuggee = parameters.TerminateDebuggee ??
                                 current.AttachedHost?.TerminateOnDisconnect ??
                                 false;
@@ -494,7 +502,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         DapDebugSessionLifecycle? lifecycle;
         lock (syncRoot)
         {
-            var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+            var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
             processId = current.AttachedHost?.ProcessId;
             processStartTimeUtc = current.AttachedHost?.ProcessStartTimeUtc;
             lifecycle = current.DapRuntime?.Lifecycle;
@@ -581,7 +589,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private ScriptLabExecutionControlResult ContinueDebug(ScriptLabContinueDebugParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
         ClearPausedState(current);
         if (current.AttachedHost is not null)
         {
@@ -620,7 +628,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private ScriptLabExecutionControlResult StepDebug(ScriptLabStepDebugParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
         ClearPausedState(current);
         if (current.AttachedHost is not null)
         {
@@ -660,6 +668,11 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
     private ScriptPausedSnapshot? GetPausedSnapshot()
     {
         var current = RequireState();
+        if (!current.HasDebugSession)
+        {
+            return current.LastPausedSnapshot;
+        }
+
         current.Session.SetWatchObservationEnabled(true);
         current.Host.SetWatchEnabled(true);
         return current.LastPausedSnapshot;
@@ -667,7 +680,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private ScriptLabReadVariablesResult ReadVariables(ScriptLabReadVariablesParams parameters)
     {
-        var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+        var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
         var backend = GetDebugBackend(current);
         if (parameters.DebugStateId is not null &&
             parameters.DebugStateId != current.CurrentDebugStateId)
@@ -787,7 +800,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         lock (syncRoot)
         {
-            var current = EnsureState(parameters.ScriptPath, parameters.OutputDirectory);
+            var current = EnsureGraphState(parameters.ScriptPath, parameters.OutputDirectory);
             if (parameters.AfterEventSequence is < 0)
             {
                 throw new InvalidOperationException("afterEventSequence must be zero or a positive event sequence.");
@@ -1119,7 +1132,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
 
     private ScriptTraceSnapshot GetTraceSnapshot()
     {
-        var current = RequireState();
+        var current = EnsureDebugState(scriptPath: null, outputDirectory: null);
         current.Session.SetTraceObservationEnabled(true);
         current.Host.SetTraceEnabled(true);
         return current.Session.GetTraceSnapshot();
@@ -1131,7 +1144,7 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
             "No script is loaded. Call loadGraph or runDebug with scriptPath first.");
     }
 
-    private ServerState EnsureState(string? scriptPath, string? outputDirectory)
+    private ServerState EnsureGraphState(string? scriptPath, string? outputDirectory)
     {
         if (scriptPath is not null || state is null)
         {
@@ -1139,6 +1152,27 @@ public sealed partial class ScriptLabJsonRpcServer : IDisposable
         }
 
         return RequireState();
+    }
+
+    private ServerState EnsureDebugState(string? scriptPath, string? outputDirectory)
+    {
+        var current = EnsureGraphState(scriptPath, outputDirectory);
+        if (!current.HasDebugSession)
+        {
+            PrepareDebugSession(current);
+        }
+
+        return current;
+    }
+
+    private static void PrepareDebugSession(ServerState current)
+    {
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(current.ScriptPath, current.OutputDirectory);
+        var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath);
+        var session = new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath);
+        var host = DebugScriptHost.Load(emit);
+        var backend = new ProbeScriptBreakpointBackend(host);
+        current.SetDebugSession(new DebugSessionState(emit, session, host, backend));
     }
 
     private IReadOnlyList<string> GetRequestedGraphNodeIds(
