@@ -12,6 +12,7 @@ public static class GraphCSharpSubsetAnalyzer
         var root = tree.GetCompilationUnitRoot();
         var walker = new Walker(GraphCSharpSemanticModelFactory.CreateSemanticModel(tree));
         walker.Visit(root);
+        walker.ReportSourceMapDirectives(root);
         return walker.Diagnostics;
     }
 
@@ -26,6 +27,22 @@ public static class GraphCSharpSubsetAnalyzer
         }
 
         public IReadOnlyList<ScriptDiagnostic> Diagnostics => diagnostics;
+
+        public void ReportSourceMapDirectives(SyntaxNode root)
+        {
+            foreach (var trivia in root.DescendantTrivia(descendIntoTrivia: true))
+            {
+                if (trivia.IsKind(SyntaxKind.LineDirectiveTrivia) ||
+                    trivia.IsKind(SyntaxKind.LineSpanDirectiveTrivia))
+                {
+                    Report(
+                        trivia.GetLocation(),
+                        GraphCSharpRuleSet.SourceMapUnavailableId,
+                        GraphCSharpRuleSet.GetSourceMapUnavailableMessage(
+                            "#line directives are not supported because graph nodes must map to the original script source."));
+                }
+            }
+        }
 
         public override void Visit(SyntaxNode? node)
         {
@@ -44,13 +61,21 @@ public static class GraphCSharpSubsetAnalyzer
 
         private void Report(GraphCSharpRestrictionDiagnostic diagnostic)
         {
-            var span = diagnostic.Node.GetLocation().GetLineSpan();
+            Report(
+                diagnostic.Node.GetLocation(),
+                diagnostic.Id,
+                diagnostic.Message);
+        }
+
+        private void Report(Location location, string id, string message)
+        {
+            var span = location.GetLineSpan();
             var start = span.StartLinePosition;
 
             diagnostics.Add(new ScriptDiagnostic(
-                diagnostic.Id,
+                id,
                 GraphCSharpRuleSet.ErrorSeverity,
-                diagnostic.Message,
+                message,
                 Path.GetFileName(span.Path),
                 start.Line + 1,
                 start.Character + 1));

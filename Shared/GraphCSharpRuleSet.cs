@@ -49,6 +49,7 @@ public static class GraphCSharpRuleSet
     public const string UnsupportedLoopId = "AGC0007";
     public const string UnsupportedTypeId = "AGC0008";
     public const string UnsupportedAllocationId = "AGC0009";
+    public const string SourceMapUnavailableId = "AGC0010";
 
     private static readonly string[] ConstructibleValueTypeNames =
     {
@@ -119,7 +120,8 @@ public static class GraphCSharpRuleSet
         new(HiddenSideEffectId, "Hidden Graph C# side effect"),
         new(UnsupportedLoopId, "Unsupported Graph C# loop"),
         new(UnsupportedTypeId, "Unsupported Graph C# type"),
-        new(UnsupportedAllocationId, "Unsupported Graph C# allocation")
+        new(UnsupportedAllocationId, "Unsupported Graph C# allocation"),
+        new(SourceMapUnavailableId, "Graph C# source map unavailable")
     };
 
     public static readonly GraphCSharpSyntaxRule[] SyntaxRules =
@@ -405,6 +407,11 @@ public static class GraphCSharpRuleSet
     public static string GetHiddenSideEffectMessage(string csharpName)
     {
         return $"Function call '{csharpName}' has side effects and must be used as a standalone statement.";
+    }
+
+    public static string GetSourceMapUnavailableMessage(string reason)
+    {
+        return $"Source map is unavailable for Graph C# v0: {reason}";
     }
 
     private static bool ContainsSimpleName(string[] names, string typeName)

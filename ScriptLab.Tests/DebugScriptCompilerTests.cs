@@ -83,6 +83,12 @@ public sealed class DebugScriptCompilerTests
         Assert.Null(multiplyMap.ProbeId);
         Assert.Null(multiplyMap.PdbSequencePoint);
         Assert.NotNull(multiplyMap.OwningBreakableDebugSiteId);
+        Assert.All(result.ProbeSites, probeSite =>
+        {
+            var mappedSite = Assert.Single(updateMap.Sites, site => site.DebugSiteId == probeSite.DebugSiteId);
+            Assert.True(mappedSite.BreakableVerified);
+            Assert.NotNull(mappedSite.PdbSequencePoint);
+        });
 
         using var debugMapDocument = JsonDocument.Parse(File.ReadAllText(result.DebugMapPath));
         var debugMapRoot = debugMapDocument.RootElement;
@@ -193,6 +199,11 @@ public sealed class DebugScriptCompilerTests
             outputDirectory);
         var amountSite = Assert.Single(result.ProbeSites, site => site.Kind == "Watch" && site.Label == "amount");
         var offsetSite = Assert.Single(result.ProbeSites, site => site.Kind == "Watch" && site.Label == "offset");
+        var watchMapSites = result.DebugMap.Functions
+            .SelectMany(function => function.Sites)
+            .Where(site => site.Kind == "Watch")
+            .ToArray();
+        Assert.All(watchMapSites, site => Assert.NotEmpty(site.SourceTextHash));
         var assembly = Assembly.Load(
             File.ReadAllBytes(result.AssemblyPath),
             File.ReadAllBytes(result.PdbPath));

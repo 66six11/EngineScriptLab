@@ -439,6 +439,37 @@ public sealed class GraphCSharpScriptParserTests
     }
 
     [Fact]
+    public void ParseText_WhenLineDirectiveIsUsed_ReturnsAgc0010()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            [Behavior("com.game.HiddenLine")]
+            public sealed partial class HiddenLine : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+            #line hidden
+                protected override void Update(float delta)
+                {
+                    return;
+                }
+            }
+            """,
+            "HiddenLine.ash.cs");
+
+        Assert.True(result.HasErrors);
+        Assert.False(result.HasSyntaxErrors);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Id == "AGC0010" &&
+            diagnostic.Message.Contains("#line directives", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ParseText_WhenScriptDeclaresStaticField_ReturnsAgc0001()
     {
         var result = GraphCSharpScriptParser.ParseText(

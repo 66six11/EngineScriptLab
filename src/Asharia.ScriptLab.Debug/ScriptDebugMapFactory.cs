@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using ScriptLab.GraphCSharp;
 
 namespace ScriptLab;
 
@@ -31,7 +32,10 @@ internal static class ScriptDebugMapFactory
                     .Select(node =>
                     {
                         probeByDebugSiteId.TryGetValue(node.DebugSiteId, out var probe);
+                        var sourceTextHash = ComputeSourceTextHash(source, node.Source);
+                        VerifySourceSpan(node, sourceTextHash);
                         var sequencePoint = FindSequencePoint(pdbInfo.SequencePoints, sourceDocumentPath, node.Source);
+                        VerifyPdbSequencePoint(node, probe, sequencePoint);
                         var localScope = sequencePoint is null
                             ? null
                             : FindLocalScope(pdbInfo.LocalScopes, sequencePoint.MethodToken, sequencePoint.Offset);
@@ -41,7 +45,7 @@ internal static class ScriptDebugMapFactory
                             node.DebugSiteId,
                             node.DebugSiteId,
                             node.Source,
-                            ComputeSourceTextHash(source, node.Source),
+                            sourceTextHash,
                             node.Id,
                             node.Kind,
                             node.Label,
@@ -81,6 +85,44 @@ internal static class ScriptDebugMapFactory
             SourceChecksum: sourceChecksum,
             BehaviorId: behaviorId,
             Functions: functions);
+    }
+
+    private static void VerifySourceSpan(BlueprintGraphNode node, string sourceTextHash)
+    {
+        if (!RequiresSourceMap(node) || !string.IsNullOrEmpty(sourceTextHash))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{GraphCSharpRuleSet.SourceMapUnavailableId}: " +
+            GraphCSharpRuleSet.GetSourceMapUnavailableMessage(
+                $"graph node '{node.Kind}:{node.Label}' has no mappable source span."));
+    }
+
+    private static void VerifyPdbSequencePoint(
+        BlueprintGraphNode node,
+        DebugProbeSite? probe,
+        PortablePdbSequencePointInfo? sequencePoint)
+    {
+        if (probe is null ||
+            node.BreakabilityHint != BehaviorIrBreakabilityHint.Breakable ||
+            sequencePoint is not null)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{GraphCSharpRuleSet.SourceMapUnavailableId}: " +
+            GraphCSharpRuleSet.GetSourceMapUnavailableMessage(
+                $"probe node '{node.Kind}:{node.Label}' has no PDB sequence point."));
+    }
+
+    private static bool RequiresSourceMap(BlueprintGraphNode node)
+    {
+        return node.Observable ||
+            node.BreakabilityHint == BehaviorIrBreakabilityHint.Breakable ||
+            node.Kind is "Branch" or "Call" or "Watch";
     }
 
     private static string ReadAssemblyMvid(string assemblyPath)
