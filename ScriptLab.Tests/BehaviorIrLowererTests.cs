@@ -146,6 +146,60 @@ public sealed class BehaviorIrLowererTests
         Assert.Equal("Vec3", makeStruct.Type);
     }
 
+    [Fact]
+    public void LowerText_WhenBehaviorFieldUsesTypeAlias_UsesCanonicalIrFieldType()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildAliasFieldScript(),
+            "AliasedField.ash.cs");
+
+        var field = Assert.Single(module.Fields);
+        Assert.Equal("Vec3", field.Type);
+    }
+
+    [Fact]
+    public void LowerText_WhenMethodParameterUsesTypeAlias_UsesCanonicalIrParameterType()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildAliasParameterScript(),
+            "AliasedParameter.ash.cs");
+
+        var parameter = Assert.Single(Assert.Single(module.Functions).Parameters);
+        Assert.Equal("float", parameter.Type);
+    }
+
+    [Fact]
+    public void LowerText_WhenLocalUsesTypeAlias_DeclaresCanonicalLocalType()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildAliasLocalScript(),
+            "AliasedLocal.ash.cs");
+
+        var declareLocal = module.Functions
+            .SelectMany(function => function.Blocks)
+            .SelectMany(block => block.Instructions)
+            .OfType<BehaviorIrDeclareLocal>()
+            .Single(instruction => instruction.LocalName == "offset");
+
+        Assert.Equal("Vec3", declareLocal.Type);
+    }
+
+    [Fact]
+    public void LowerText_WhenVarLocalUsesRegisteredValueType_DeclaresInferredCanonicalLocalType()
+    {
+        var module = BehaviorIrLowerer.LowerText(
+            BuildVarLocalScript(),
+            "InferredLocal.ash.cs");
+
+        var declareLocal = module.Functions
+            .SelectMany(function => function.Blocks)
+            .SelectMany(block => block.Instructions)
+            .OfType<BehaviorIrDeclareLocal>()
+            .Single(instruction => instruction.LocalName == "offset");
+
+        Assert.Equal("Vec3", declareLocal.Type);
+    }
+
     private static string GetSamplePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -225,6 +279,85 @@ public sealed class BehaviorIrLowererTests
                 protected override void Update(float delta)
                 {
                     Transform.Translate(Self, new Offset(0f, 0f, Speed * delta));
+                }
+            }
+            """;
+    }
+
+    private static string BuildAliasFieldScript()
+    {
+        return """
+            using Asharia.Behavior;
+            using Offset = Asharia.Behavior.Vec3;
+
+            namespace com.game;
+
+            public class AliasedField : BehaviorComponent
+            {
+                [Field(1)]
+                public Offset SpawnOffset;
+
+                protected override void Update(float delta)
+                {
+                    return;
+                }
+            }
+            """;
+    }
+
+    private static string BuildAliasParameterScript()
+    {
+        return """
+            using Asharia.Behavior;
+            using Delta = System.Single;
+
+            namespace com.game;
+
+            public class AliasedParameter : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(Delta delta)
+                {
+                    return;
+                }
+            }
+            """;
+    }
+
+    private static string BuildAliasLocalScript()
+    {
+        return """
+            using Asharia.Behavior;
+            using Offset = Asharia.Behavior.Vec3;
+
+            namespace com.game;
+
+            public class AliasedLocal : BehaviorComponent
+            {
+                protected override void Update(float delta)
+                {
+                    Offset offset = new Offset(0f, 0f, delta);
+                    Transform.Translate(Self, offset);
+                }
+            }
+            """;
+    }
+
+    private static string BuildVarLocalScript()
+    {
+        return """
+            using Asharia.Behavior;
+
+            namespace com.game;
+
+            public class InferredLocal : BehaviorComponent
+            {
+                protected override void Update(float delta)
+                {
+                    var offset = new Vec3(0f, 0f, delta);
+                    Transform.Translate(Self, offset);
                 }
             }
             """;

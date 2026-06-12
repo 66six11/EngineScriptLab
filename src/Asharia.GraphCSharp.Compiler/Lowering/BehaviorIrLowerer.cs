@@ -36,7 +36,7 @@ public static class BehaviorIrLowerer
 
         return AssignDebugSites(new BehaviorIrModule(
             parseResult.Behavior.Id,
-            LowerFields(behaviorClass, parseResult.Behavior),
+            LowerFields(behaviorClass, parseResult.Behavior, semanticModel),
             LowerFunctions(behaviorClass, parseResult.Behavior, semanticModel)));
     }
 
@@ -146,7 +146,8 @@ public static class BehaviorIrLowerer
 
     private static IReadOnlyList<BehaviorIrField> LowerFields(
         ClassDeclarationSyntax behaviorClass,
-        ScriptBehaviorSummary behavior)
+        ScriptBehaviorSummary behavior,
+        SemanticModel semanticModel)
     {
         var behaviorFieldNames = behavior.Fields.Select(field => field.Name).ToHashSet(StringComparer.Ordinal);
         var behaviorFieldsByName = behavior.Fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
@@ -156,7 +157,10 @@ public static class BehaviorIrLowerer
             .SelectMany(field => field.Declaration.Variables.Select(variable => new
             {
                 Name = variable.Identifier.ValueText,
-                Type = field.Declaration.Type.ToString(),
+                Type = GraphCSharpTypeNameResolver.Resolve(
+                    field.Declaration.Type,
+                    semanticModel,
+                    field.Declaration.Type.ToString()),
                 InitialValue = variable.Initializer?.Value.ToString()
             }))
             .Where(field => behaviorFieldNames.Contains(field.Name))
@@ -210,7 +214,10 @@ public static class BehaviorIrLowerer
             method.ParameterList.Parameters
                 .Select(parameter => new BehaviorIrParameter(
                     parameter.Identifier.ValueText,
-                    parameter.Type?.ToString() ?? "var"))
+                    GraphCSharpTypeNameResolver.Resolve(
+                        parameter.Type,
+                        semanticModel,
+                        parameter.Type?.ToString() ?? "var")))
                 .ToArray(),
             builder.Blocks);
     }
@@ -325,11 +332,17 @@ public static class BehaviorIrLowerer
         {
             foreach (var variable in localDeclaration.Declaration.Variables)
             {
+                var localType = GraphCSharpTypeNameResolver.ResolveLocal(
+                    variable,
+                    localDeclaration.Declaration.Type,
+                    semanticModel);
+                currentBlock.Instructions.Add(new BehaviorIrDeclareLocal(
+                    variable.Identifier.ValueText,
+                    localType,
+                    GetSourceSpan(localDeclaration)));
+
                 if (variable.Initializer is null)
                 {
-                    currentBlock.Instructions.Add(new BehaviorIrDeclareLocal(
-                        variable.Identifier.ValueText,
-                        GetSourceSpan(localDeclaration)));
                     continue;
                 }
 

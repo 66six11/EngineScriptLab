@@ -19,6 +19,9 @@ public static class GraphCSharpScriptParser
         var tree = CSharpSyntaxTree.ParseText(source, path: fullPath);
         var root = tree.GetCompilationUnitRoot();
         var diagnostics = tree.GetDiagnostics().Select(ToScriptDiagnostic).ToList();
+        var semanticModel = diagnostics.Any(diagnostic => diagnostic.Severity == "Error")
+            ? null
+            : GraphCSharpSemanticModelFactory.CreateSemanticModel(tree);
 
         if (!diagnostics.Any(diagnostic => diagnostic.Severity == "Error"))
         {
@@ -30,7 +33,7 @@ public static class GraphCSharpScriptParser
         return new ScriptParseResult(
             fullPath,
             diagnostics,
-            behaviorClass is null ? null : BuildBehaviorSummary(behaviorClass));
+            behaviorClass is null ? null : BuildBehaviorSummary(behaviorClass, semanticModel));
     }
 
     private static ScriptDiagnostic ToScriptDiagnostic(Diagnostic diagnostic)
@@ -59,7 +62,9 @@ public static class GraphCSharpScriptParser
                 .FirstOrDefault(DerivesFromBehaviorComponent);
     }
 
-    private static ScriptBehaviorSummary BuildBehaviorSummary(ClassDeclarationSyntax behaviorClass)
+    private static ScriptBehaviorSummary BuildBehaviorSummary(
+        ClassDeclarationSyntax behaviorClass,
+        SemanticModel? semanticModel)
     {
         var explicitBehaviorId = GetFirstAttributeArgument(behaviorClass.AttributeLists, "Behavior");
         var behaviorId = explicitBehaviorId ?? GetDefaultBehaviorId(behaviorClass);
@@ -69,18 +74,23 @@ public static class GraphCSharpScriptParser
             behaviorId,
             explicitBehaviorId is null ? "default" : "explicit",
             GetAttributeArguments(behaviorClass.AttributeLists, "FormerlyBehavior"),
-            BuildFields(behaviorClass),
-            BuildMethods(behaviorClass));
+            BuildFields(behaviorClass, semanticModel),
+            BuildMethods(behaviorClass, semanticModel));
     }
 
-    private static IReadOnlyList<ScriptFieldSummary> BuildFields(ClassDeclarationSyntax behaviorClass)
+    private static IReadOnlyList<ScriptFieldSummary> BuildFields(
+        ClassDeclarationSyntax behaviorClass,
+        SemanticModel? semanticModel)
     {
         return behaviorClass.Members
             .OfType<FieldDeclarationSyntax>()
             .Where(IsBehaviorField)
             .SelectMany(field =>
             {
-                var type = field.Declaration.Type.ToString();
+                var type = GraphCSharpTypeNameResolver.Resolve(
+                    field.Declaration.Type,
+                    semanticModel,
+                    field.Declaration.Type.ToString());
                 var accessibility = GetAccessibility(field.Modifiers);
                 var serialization = HasExplicitFieldAttribute(field.AttributeLists)
                     ? "explicit"
@@ -97,7 +107,9 @@ public static class GraphCSharpScriptParser
             .ToArray();
     }
 
-    private static IReadOnlyList<ScriptMethodSummary> BuildMethods(ClassDeclarationSyntax behaviorClass)
+    private static IReadOnlyList<ScriptMethodSummary> BuildMethods(
+        ClassDeclarationSyntax behaviorClass,
+        SemanticModel? semanticModel)
     {
         return behaviorClass.Members
             .OfType<MethodDeclarationSyntax>()
@@ -106,7 +118,12 @@ public static class GraphCSharpScriptParser
                 method.ParameterList.Parameters
                     .Select(parameter => new ScriptParameterSummary(
                         parameter.Identifier.ValueText,
-                        parameter.Type?.ToString()))
+                        parameter.Type is null
+                            ? null
+                            : GraphCSharpTypeNameResolver.Resolve(
+                                parameter.Type,
+                                semanticModel,
+                                parameter.Type.ToString())))
                     .ToArray(),
                 BuildBody(method)))
             .ToArray();

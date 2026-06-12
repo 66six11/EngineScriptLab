@@ -24,7 +24,7 @@ public static class BehaviorIrText
             BehaviorIrBranch branch => $"Branch {branch.Condition} then {branch.ThenBlock} else {branch.ElseBlock}",
             BehaviorIrJump jump => $"Jump {jump.TargetBlock}",
             BehaviorIrReturn => "Return",
-            BehaviorIrDeclareLocal declareLocal => $"DeclareLocal {declareLocal.LocalName}",
+            BehaviorIrDeclareLocal declareLocal => $"DeclareLocal {declareLocal.LocalName} : {declareLocal.Type}",
             BehaviorIrStoreLocal storeLocal => $"StoreLocal {storeLocal.LocalName}, {storeLocal.Value}",
             BehaviorIrAssign assign => $"Assign {assign.TargetExpression}, {assign.Value}",
             BehaviorIrDebugWatch debugWatch => $"DebugWatch {debugWatch.Name}, {debugWatch.Value}",

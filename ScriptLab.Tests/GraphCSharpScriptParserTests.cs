@@ -255,6 +255,42 @@ public sealed class GraphCSharpScriptParserTests
 
         Assert.False(result.HasErrors);
         Assert.Empty(result.Diagnostics);
+
+        Assert.NotNull(result.Behavior);
+        var field = Assert.Single(result.Behavior.Fields);
+        Assert.Equal("Vec3", field.Type);
+    }
+
+    [Fact]
+    public void ParseText_WhenMethodParameterUsesTypeAlias_ReturnsCanonicalSignature()
+    {
+        var result = GraphCSharpScriptParser.ParseText(
+            """
+            using Asharia.Behavior;
+            using Delta = System.Single;
+
+            namespace com.game;
+
+            [Behavior("com.game.AliasedParameter")]
+            public sealed partial class AliasedParameter : BehaviorComponent
+            {
+                [Field(1)]
+                public float Speed = 4.0f;
+
+                protected override void Update(Delta delta)
+                {
+                    return;
+                }
+            }
+            """,
+            "AliasedParameter.ash.cs");
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Diagnostics);
+
+        Assert.NotNull(result.Behavior);
+        var method = Assert.Single(result.Behavior.Methods);
+        Assert.Equal("Update(float delta)", method.Signature);
     }
 
     [Fact]

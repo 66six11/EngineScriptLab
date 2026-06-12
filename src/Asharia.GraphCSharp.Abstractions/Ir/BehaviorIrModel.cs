@@ -91,7 +91,8 @@ public sealed record BehaviorIrJump(string TargetBlock, BehaviorSourceSpan Sourc
 
 public sealed record BehaviorIrReturn(BehaviorSourceSpan Source) : BehaviorIrInstruction(Source);
 
-public sealed record BehaviorIrDeclareLocal(string LocalName, BehaviorSourceSpan Source) : BehaviorIrInstruction(Source);
+public sealed record BehaviorIrDeclareLocal(string LocalName, string Type, BehaviorSourceSpan Source)
+    : BehaviorIrInstruction(Source);
 
 public sealed record BehaviorIrStoreLocal(string LocalName, string Value, BehaviorSourceSpan Source)
     : BehaviorIrInstruction(Source);
