@@ -128,16 +128,16 @@ public sealed class DapScriptBreakpointBackendTests
         Assert.Contains("supportsConditionalBreakpoints", result.Message, StringComparison.Ordinal);
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath));
     }
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

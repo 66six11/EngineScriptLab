@@ -156,9 +156,9 @@ public sealed class DapDebugSessionLauncherTests
         Assert.False(transport.Requests[1].Arguments["terminateOnDisconnect"]!.GetValue<bool>());
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath),
             emit.DebugMap.SourceDocumentPath);
@@ -166,7 +166,7 @@ public sealed class DapDebugSessionLauncherTests
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

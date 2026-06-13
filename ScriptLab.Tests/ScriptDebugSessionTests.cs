@@ -23,7 +23,7 @@ public sealed class ScriptDebugSessionTests
         var invalidMap = emit.DebugMap with { SchemaVersion = 2 };
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new ScriptDebugSession(invalidMap, sourceText, emit.DebugMap.SourceDocumentPath));
+            new DebugSessionCore(invalidMap, sourceText, emit.DebugMap.SourceDocumentPath));
 
         Assert.Contains("schema version", exception.Message, StringComparison.Ordinal);
     }
@@ -35,7 +35,7 @@ public sealed class ScriptDebugSessionTests
         var sourceText = File.ReadAllText(emit.DebugMap.SourceDocumentPath) + Environment.NewLine;
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new ScriptDebugSession(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath));
+            new DebugSessionCore(emit.DebugMap, sourceText, emit.DebugMap.SourceDocumentPath));
 
         Assert.Contains("source checksum", exception.Message, StringComparison.Ordinal);
     }
@@ -48,7 +48,7 @@ public sealed class ScriptDebugSessionTests
         var otherPath = Path.Combine(Path.GetDirectoryName(emit.DebugMap.SourceDocumentPath)!, "Other.ash.cs");
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new ScriptDebugSession(emit.DebugMap, sourceText, otherPath));
+            new DebugSessionCore(emit.DebugMap, sourceText, otherPath));
 
         Assert.Contains("source document path", exception.Message, StringComparison.Ordinal);
     }
@@ -355,7 +355,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         host.SetFieldValue(101, "com.game.PlayerMove", "1", "8.5");
         var session = CreateSession(emit);
@@ -399,7 +399,7 @@ public sealed class ScriptDebugSessionTests
     public void ReadPausedSnapshot_WhenStoppedEventIsUnresolved_ReturnsUnavailableScopes()
     {
         var emit = EmitPlayerMove();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var session = CreateSession(emit);
         var stopped = session.ResolveStoppedProbe(-1, synthetic: true);
 
@@ -422,7 +422,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var session = CreateSession(emit);
         var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: false);
@@ -446,7 +446,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var session = CreateSession(emit);
         var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: false);
@@ -531,7 +531,7 @@ public sealed class ScriptDebugSessionTests
         var emit = EmitDebugWatch();
         var amountSite = FindSite(emit.DebugMap, "Watch", "amount");
         var offsetSite = FindSite(emit.DebugMap, "Watch", "offset");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
@@ -574,7 +574,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitDebugWatch();
         var offsetSite = FindSite(emit.DebugMap, "Watch", "offset");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
@@ -601,7 +601,7 @@ public sealed class ScriptDebugSessionTests
     public void ClearWatchValues_WhenValuesWereRecorded_RemovesWatchScopeVariables()
     {
         var emit = EmitDebugWatch();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
@@ -624,7 +624,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
@@ -663,7 +663,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit, traceSampleCapacity: 1);
 
@@ -690,7 +690,7 @@ public sealed class ScriptDebugSessionTests
     public void RecordTraceEvents_WhenOnlyValueProbeEventsExist_IgnoresEvents()
     {
         var emit = EmitDebugWatch();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
@@ -710,7 +710,7 @@ public sealed class ScriptDebugSessionTests
     public void ClearTrace_WhenTraceExists_RemovesSitesAndRecentSamples()
     {
         var emit = EmitPlayerMove();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
@@ -733,7 +733,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
@@ -764,7 +764,7 @@ public sealed class ScriptDebugSessionTests
     public void IngestProbeEvents_WhenTraceObserverIsDisabled_DoesNotAggregateTrace()
     {
         var emit = EmitPlayerMove();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
@@ -783,7 +783,7 @@ public sealed class ScriptDebugSessionTests
     public void IngestProbeEvents_WhenSameWatchLogIsPolledTwice_DoesNotDoubleCount()
     {
         var emit = EmitDebugWatch();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
@@ -811,7 +811,7 @@ public sealed class ScriptDebugSessionTests
     public void IngestProbeEvents_WhenWatchObserverIsDisabled_DoesNotAggregateWatchValues()
     {
         var emit = EmitDebugWatch();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 9, "com.game.DebugWatch");
         var session = CreateSession(emit);
 
@@ -830,7 +830,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
         host.SetBreakpointByDebugSiteId(branchSite.DebugSiteId, enabled: true);
@@ -854,7 +854,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
@@ -882,7 +882,7 @@ public sealed class ScriptDebugSessionTests
     {
         var emit = EmitPlayerMove();
         var branchSite = FindSite(emit.DebugMap, "Branch", "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
         var session = CreateSession(emit);
 
@@ -930,9 +930,9 @@ public sealed class ScriptDebugSessionTests
         }
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit, int traceSampleCapacity = 256)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit, int traceSampleCapacity = 256)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath),
             emit.DebugMap.SourceDocumentPath,
@@ -941,7 +941,7 @@ public sealed class ScriptDebugSessionTests
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),
@@ -951,7 +951,7 @@ public sealed class ScriptDebugSessionTests
 
     private static DebugScriptEmitResult EmitDebugWatch()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("DebugWatch.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

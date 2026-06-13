@@ -29,7 +29,7 @@ public sealed class DapDebugSessionRuntimeTests
     {
         var emit = EmitPlayerMove();
         var session = CreateSession(emit);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         session.SetSourceBreakpoints(
             emit.DebugMap.SourceDocumentPath,
@@ -142,7 +142,7 @@ public sealed class DapDebugSessionRuntimeTests
     {
         var emit = EmitPlayerMove();
         var session = CreateSession(emit);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var transport = new FakeDapTransport();
         transport.Events.Add(new JsonObject
@@ -230,7 +230,7 @@ public sealed class DapDebugSessionRuntimeTests
     {
         var emit = EmitPlayerMove();
         var session = CreateSession(emit);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var transport = new FakeDapTransport();
         transport.Events.Add(new JsonObject
@@ -299,7 +299,7 @@ public sealed class DapDebugSessionRuntimeTests
     {
         var emit = EmitPlayerMove();
         var session = CreateSession(emit);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var transport = new FakeDapTransport();
         transport.Events.Add(new JsonObject
@@ -337,7 +337,7 @@ public sealed class DapDebugSessionRuntimeTests
     {
         var emit = EmitPlayerMove();
         var session = CreateSession(emit);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var transport = new FakeDapTransport();
         transport.Events.Add(new JsonObject
@@ -388,9 +388,9 @@ public sealed class DapDebugSessionRuntimeTests
         };
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath),
             emit.DebugMap.SourceDocumentPath);
@@ -398,7 +398,7 @@ public sealed class DapDebugSessionRuntimeTests
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

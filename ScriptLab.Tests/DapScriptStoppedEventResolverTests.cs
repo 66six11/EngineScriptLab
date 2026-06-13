@@ -153,9 +153,9 @@ public sealed class DapScriptStoppedEventResolverTests
         Assert.Equal("stackTrace", Assert.Single(transport.Requests).Command);
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath),
             emit.DebugMap.SourceDocumentPath);
@@ -163,7 +163,7 @@ public sealed class DapScriptStoppedEventResolverTests
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

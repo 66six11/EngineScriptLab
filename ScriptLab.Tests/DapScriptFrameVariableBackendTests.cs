@@ -139,7 +139,7 @@ public sealed class DapScriptFrameVariableBackendTests
     {
         var emit = EmitPlayerMove();
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var session = CreateSession(emit);
         var stopped = session.ResolveStoppedProbe(branchProbe.ProbeId, synthetic: false, threadId: 11);
@@ -192,9 +192,9 @@ public sealed class DapScriptFrameVariableBackendTests
         Assert.Equal("delta", Assert.Single(arguments.Variables).Name);
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath),
             emit.DebugMap.SourceDocumentPath);
@@ -202,7 +202,7 @@ public sealed class DapScriptFrameVariableBackendTests
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

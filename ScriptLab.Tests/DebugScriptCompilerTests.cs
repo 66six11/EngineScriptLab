@@ -11,7 +11,7 @@ namespace ScriptLab.Tests;
 public sealed class DebugScriptCompilerTests
 {
     [Fact]
-    public void EmitFile_WhenPlayerMoveIsValid_EmitsInstrumentedAssemblyAndPdb()
+    public void CompatibilityWrapper_WhenEmittingFile_ReturnsDebugEmitResult()
     {
         var outputDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -19,6 +19,22 @@ public sealed class DebugScriptCompilerTests
             Guid.NewGuid().ToString("N"));
 
         var result = DebugScriptCompiler.EmitFile(
+            GetSamplePath("PlayerMove.ash.cs"),
+            outputDirectory);
+
+        Assert.Equal("com.game.PlayerMove", result.DebugMap.BehaviorId);
+        Assert.True(File.Exists(result.AssemblyPath));
+    }
+
+    [Fact]
+    public void EmitFile_WhenPlayerMoveIsValid_EmitsInstrumentedAssemblyAndPdb()
+    {
+        var outputDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "ScriptLab.Tests",
+            Guid.NewGuid().ToString("N"));
+
+        var result = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
 
@@ -105,7 +121,7 @@ public sealed class DebugScriptCompilerTests
             Path.GetTempPath(),
             "ScriptLab.Tests",
             Guid.NewGuid().ToString("N"));
-        var result = DebugScriptCompiler.EmitFile(
+        var result = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
         var source = """
@@ -150,7 +166,7 @@ public sealed class DebugScriptCompilerTests
             Path.GetTempPath(),
             "ScriptLab.Tests",
             Guid.NewGuid().ToString("N"));
-        var result = DebugScriptCompiler.EmitFile(
+        var result = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
         var branchSite = Assert.Single(result.ProbeSites, site => site.Kind == "Branch");
@@ -194,7 +210,7 @@ public sealed class DebugScriptCompilerTests
             Path.GetTempPath(),
             "ScriptLab.Tests",
             Guid.NewGuid().ToString("N"));
-        var result = DebugScriptCompiler.EmitFile(
+        var result = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("DebugWatch.ash.cs"),
             outputDirectory);
         var amountSite = Assert.Single(result.ProbeSites, site => site.Kind == "Watch" && site.Label == "amount");

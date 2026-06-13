@@ -8,7 +8,7 @@ public sealed class DebugScriptHostTests
     public void Load_WhenUsingCompatibilityWrapper_ReturnsDotnetDebugHost()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
 
@@ -21,10 +21,10 @@ public sealed class DebugScriptHostTests
     public void MountBehavior_WhenPublicFieldExists_ReadsAndWritesFieldByEntityBehaviorAndFieldId()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
 
         var instance = host.MountBehavior(entityId: 101, "com.game.PlayerMove");
         var speed = Assert.Single(instance.GetFields(), field => field.FieldId == new FieldId(1));
@@ -46,10 +46,10 @@ public sealed class DebugScriptHostTests
     public void MountBehavior_WhenPrivateFieldIsExplicit_ReadsAndWritesField()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PrivateSerializedField.ash.cs"),
             outputDirectory);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
 
         var instance = host.MountBehavior(entityId: 7, "com.game.PrivateSerializedField");
         var speed = Assert.Single(instance.GetFields());
@@ -69,13 +69,13 @@ public sealed class DebugScriptHostTests
     public void SetBreakpointByDebugSiteId_WhenUpdateRuns_RecordsBreakpointEventWithoutRecompile()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
         var branchSite = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
         var assemblyLastWrite = File.GetLastWriteTimeUtc(emit.AssemblyPath);
         var instrumentedSourceLastWrite = File.GetLastWriteTimeUtc(emit.InstrumentedSourcePath);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
 
         host.SetBreakpointByDebugSiteId(branchSite.DebugSiteId, enabled: true);
 
@@ -104,11 +104,11 @@ public sealed class DebugScriptHostTests
     public void SetBreakpoint_WhenWatchValueRuns_RecordsBreakpointEvent()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("DebugWatch.ash.cs"),
             outputDirectory);
         var amountSite = Assert.Single(emit.ProbeSites, site => site.Kind == "Watch" && site.Label == "amount");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.DebugWatch");
 
         host.SetBreakpoint(amountSite.ProbeId, enabled: true);
@@ -129,10 +129,10 @@ public sealed class DebugScriptHostTests
     public void InvokeUpdate_WhenTraceObservationIsDisabled_DoesNotRecordEnterEvents()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             outputDirectory);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.PlayerMove");
 
         host.ClearProbeEvents();
@@ -145,10 +145,10 @@ public sealed class DebugScriptHostTests
     public void InvokeUpdate_WhenWatchObservationIsDisabled_DoesNotRecordValueEvents()
     {
         var outputDirectory = CreateOutputDirectory();
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("DebugWatch.ash.cs"),
             outputDirectory);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var instance = host.MountBehavior(entityId: 1, "com.game.DebugWatch");
 
         host.ClearProbeEvents();

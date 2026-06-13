@@ -9,7 +9,7 @@ public sealed class ProbeScriptBreakpointBackendTests
     {
         var emit = EmitPlayerMove();
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.Kind == "Branch");
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var session = CreateSession(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
 
@@ -50,7 +50,7 @@ public sealed class ProbeScriptBreakpointBackendTests
     public void ApplySourceBreakpoints_WhenSourceSetIsReplacedWithEmpty_ClearsHostProbeBreakpoint()
     {
         var emit = EmitPlayerMove();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var session = CreateSession(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
 
@@ -77,7 +77,7 @@ public sealed class ProbeScriptBreakpointBackendTests
         var branchProbe = Assert.Single(emit.ProbeSites, site => site.DebugSiteId == branchSite.DebugSiteId);
         var translateSite = FindSite(emit.DebugMap, "Call", "asharia.transform.translate");
         var translateProbe = Assert.Single(emit.ProbeSites, site => site.DebugSiteId == translateSite.DebugSiteId);
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var session = CreateSession(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
 
@@ -106,7 +106,7 @@ public sealed class ProbeScriptBreakpointBackendTests
     public void ApplySourceBreakpoints_WhenBreakpointIsSourceOnly_ReturnsUnsupported()
     {
         var emit = EmitPlayerMove();
-        var host = DebugScriptHost.Load(emit);
+        var host = DotnetDebugHost.Load(emit);
         var session = CreateSession(emit);
         var backend = new ProbeScriptBreakpointBackend(host);
 
@@ -123,16 +123,16 @@ public sealed class ProbeScriptBreakpointBackendTests
         Assert.Empty(host.GetBreakpointProbeIds());
     }
 
-    private static ScriptDebugSession CreateSession(DebugScriptEmitResult emit)
+    private static DebugSessionCore CreateSession(DebugScriptEmitResult emit)
     {
-        return new ScriptDebugSession(
+        return new DebugSessionCore(
             emit.DebugMap,
             File.ReadAllText(emit.DebugMap.SourceDocumentPath));
     }
 
     private static DebugScriptEmitResult EmitPlayerMove()
     {
-        return DebugScriptCompiler.EmitFile(
+        return SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(
                 Path.GetTempPath(),

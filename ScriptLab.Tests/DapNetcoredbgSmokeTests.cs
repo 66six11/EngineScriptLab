@@ -184,7 +184,7 @@ public sealed class DapNetcoredbgSmokeTests
             Assert.Equal(ScriptStoppedReason.Breakpoint, hostStopped.Reason);
             Assert.True(hostStopped.ThreadId.HasValue);
 
-            var session = new ScriptDebugSession(
+            var session = new DebugSessionCore(
                 smoke.Emit.DebugMap,
                 File.ReadAllText(smoke.Emit.DebugMap.SourceDocumentPath),
                 smoke.Emit.DebugMap.SourceDocumentPath);
@@ -268,7 +268,7 @@ public sealed class DapNetcoredbgSmokeTests
             attach.Wait();
             client.WaitForInitializedEvent(TimeSpan.FromMilliseconds(250));
 
-            var session = new ScriptDebugSession(
+            var session = new DebugSessionCore(
                 smoke.Emit.DebugMap,
                 File.ReadAllText(smoke.Emit.DebugMap.SourceDocumentPath),
                 smoke.Emit.DebugMap.SourceDocumentPath);
@@ -543,7 +543,7 @@ public sealed class DapNetcoredbgSmokeTests
             attach.Wait();
             client.WaitForInitializedEvent(TimeSpan.FromMilliseconds(250));
 
-            var session = new ScriptDebugSession(
+            var session = new DebugSessionCore(
                 smoke.Emit.DebugMap,
                 File.ReadAllText(smoke.Emit.DebugMap.SourceDocumentPath),
                 smoke.Emit.DebugMap.SourceDocumentPath);
@@ -674,7 +674,7 @@ public sealed class DapNetcoredbgSmokeTests
             attach.Wait();
             client.WaitForInitializedEvent(TimeSpan.FromMilliseconds(250));
 
-            var session = new ScriptDebugSession(
+            var session = new DebugSessionCore(
                 smoke.Emit.DebugMap,
                 File.ReadAllText(smoke.Emit.DebugMap.SourceDocumentPath),
                 smoke.Emit.DebugMap.SourceDocumentPath);
@@ -978,7 +978,7 @@ public sealed class DapNetcoredbgSmokeTests
         string dotnetPath,
         string workspace)
     {
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(workspace, "emit"));
         var hostDirectory = Path.Combine(workspace, "host");
@@ -1020,7 +1020,7 @@ public sealed class DapNetcoredbgSmokeTests
         string dotnetPath,
         string workspace)
     {
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(workspace, "emit"));
         var hostDirectory = Path.Combine(workspace, "host");
@@ -1068,7 +1068,7 @@ public sealed class DapNetcoredbgSmokeTests
         string compilerPath,
         string workspace)
     {
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(workspace, "emit"));
         var bridgeDirectory = Path.Combine(workspace, "bridge");
@@ -1194,7 +1194,7 @@ public sealed class DapNetcoredbgSmokeTests
             {
                 ["asharia-script-runtime"] = new[] { "asharia-core", "asharia-scene-core" }
             });
-        var emit = DebugScriptCompiler.EmitFile(
+        var emit = SourceInstrumentedDebugCompiler.EmitFile(
             GetSamplePath("PlayerMove.ash.cs"),
             Path.Combine(scriptRuntimeDirectory, "generated"));
 
