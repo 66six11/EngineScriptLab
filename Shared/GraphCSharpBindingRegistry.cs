@@ -49,7 +49,11 @@ public sealed class GraphCSharpFunctionBinding
         string? returnType,
         IReadOnlyList<GraphCSharpParameterBinding> parameters,
         GraphCSharpEffectFlags effects,
-        GraphCSharpScriptContextMask allowedContexts)
+        GraphCSharpScriptContextMask allowedContexts,
+        string displayName,
+        string category,
+        int version,
+        FunctionId? replacedBy = null)
     {
         CSharpName = csharpName;
         CSharpQualifiedName = csharpQualifiedName;
@@ -58,6 +62,10 @@ public sealed class GraphCSharpFunctionBinding
         Parameters = parameters;
         Effects = effects;
         AllowedContexts = allowedContexts;
+        DisplayName = displayName;
+        Category = category;
+        Version = version;
+        ReplacedBy = replacedBy;
     }
 
     public string CSharpName { get; }
@@ -73,6 +81,14 @@ public sealed class GraphCSharpFunctionBinding
     public GraphCSharpEffectFlags Effects { get; }
 
     public GraphCSharpScriptContextMask AllowedContexts { get; }
+
+    public string DisplayName { get; }
+
+    public string Category { get; }
+
+    public int Version { get; }
+
+    public FunctionId? ReplacedBy { get; }
 }
 
 public static class GraphCSharpBindingRegistry
@@ -86,7 +102,10 @@ public static class GraphCSharpBindingRegistry
             "bool",
             new[] { new GraphCSharpParameterBinding("key", "Key") },
             GraphCSharpEffectFlags.ReadsInput,
-            GraphCSharpScriptContextMask.Update | GraphCSharpScriptContextMask.FixedUpdate),
+            GraphCSharpScriptContextMask.Update | GraphCSharpScriptContextMask.FixedUpdate,
+            "Key Down",
+            "Input",
+            1),
         new(
             "Transform.Translate",
             "Asharia.Behavior.Transform.Translate",
@@ -98,7 +117,10 @@ public static class GraphCSharpBindingRegistry
                 new GraphCSharpParameterBinding("offset", "Vec3")
             },
             GraphCSharpEffectFlags.MutatesWorld,
-            GraphCSharpScriptContextMask.Update | GraphCSharpScriptContextMask.FixedUpdate),
+            GraphCSharpScriptContextMask.Update | GraphCSharpScriptContextMask.FixedUpdate,
+            "Translate",
+            "Transform",
+            1),
         new(
             "GraphDebug.Inspect",
             "Asharia.Behavior.GraphDebug.Inspect",
@@ -110,7 +132,10 @@ public static class GraphCSharpBindingRegistry
                 new GraphCSharpParameterBinding("value", "*")
             },
             GraphCSharpEffectFlags.Debug,
-            GraphCSharpScriptContextMask.AnyLifecycle),
+            GraphCSharpScriptContextMask.AnyLifecycle,
+            "Inspect",
+            "Debug",
+            1),
         new(
             "GraphDebug.Watch",
             "Asharia.Behavior.GraphDebug.Watch",
@@ -122,7 +147,10 @@ public static class GraphCSharpBindingRegistry
                 new GraphCSharpParameterBinding("value", "*")
             },
             GraphCSharpEffectFlags.Debug,
-            GraphCSharpScriptContextMask.AnyLifecycle)
+            GraphCSharpScriptContextMask.AnyLifecycle,
+            "Watch",
+            "Debug",
+            1)
     };
 
     public static bool TryGetFunctionId(string csharpName, out FunctionId functionId)
