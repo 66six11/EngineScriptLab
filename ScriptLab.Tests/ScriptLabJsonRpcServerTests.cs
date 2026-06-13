@@ -62,6 +62,7 @@ public sealed class ScriptLabJsonRpcServerTests
     public void HandleRequest_WhenRunDebugIsCalled_ReturnsStoppedPausedAndTraceState()
     {
         var server = CreateServer();
+        var branchNodeId = LoadBranchNodeId(server);
 
         using var response = Send(
             server,
@@ -69,19 +70,18 @@ public sealed class ScriptLabJsonRpcServerTests
             "runDebug",
             new
             {
-                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
-                graphNodeId = "n3",
+                graphNodeId = branchNodeId,
                 observeTrace = true
             });
         var result = response.RootElement.GetProperty("result");
 
         Assert.Equal("com.game.PlayerMove", result.GetProperty("behaviorId").GetString());
-        Assert.Equal("n3", result.GetProperty("stoppedEvent").GetProperty("graphNodeId").GetString());
+        Assert.Equal(branchNodeId, result.GetProperty("stoppedEvent").GetProperty("graphNodeId").GetString());
         Assert.Equal("resolved", result.GetProperty("stoppedEvent").GetProperty("status").GetString());
         Assert.Equal("partial", result.GetProperty("pausedSnapshot").GetProperty("status").GetString());
         Assert.Contains(
             result.GetProperty("ingest").GetProperty("traceSnapshot").GetProperty("sites").EnumerateArray(),
-            site => site.GetProperty("graphNodeId").GetString() == "n3");
+            site => site.GetProperty("graphNodeId").GetString() == branchNodeId);
     }
 
     [Fact]
@@ -278,6 +278,7 @@ public sealed class ScriptLabJsonRpcServerTests
     public void HandleRequest_WhenContinueIsCalledOnProbeBackend_ReturnsUnsupportedAndClearsPausedSnapshot()
     {
         var server = CreateServer();
+        var branchNodeId = LoadBranchNodeId(server);
 
         using var run = Send(
             server,
@@ -285,8 +286,7 @@ public sealed class ScriptLabJsonRpcServerTests
             "runDebug",
             new
             {
-                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
-                graphNodeId = "n3"
+                graphNodeId = branchNodeId
             });
         Assert.Equal("partial", run.RootElement
             .GetProperty("result")
@@ -309,6 +309,7 @@ public sealed class ScriptLabJsonRpcServerTests
     public void HandleRequest_WhenStepIsCalledOnProbeBackend_ReturnsUnsupportedAndClearsPausedSnapshot()
     {
         var server = CreateServer();
+        var branchNodeId = LoadBranchNodeId(server);
 
         Send(
             server,
@@ -316,8 +317,7 @@ public sealed class ScriptLabJsonRpcServerTests
             "runDebug",
             new
             {
-                scriptPath = GetSamplePath("PlayerMove.ash.cs"),
-                graphNodeId = "n3"
+                graphNodeId = branchNodeId
             }).Dispose();
 
         using var response = Send(
@@ -1574,6 +1574,27 @@ public sealed class ScriptLabJsonRpcServerTests
             @params = parameters
         });
         return JsonDocument.Parse(server.HandleRequest(request));
+    }
+
+    private static string LoadBranchNodeId(ScriptLabJsonRpcServer server)
+    {
+        using var loadGraph = Send(
+            server,
+            0,
+            "loadGraph",
+            new { scriptPath = GetSamplePath("PlayerMove.ash.cs") });
+
+        return loadGraph.RootElement
+            .GetProperty("result")
+            .GetProperty("graph")
+            .GetProperty("functions")
+            .EnumerateArray()
+            .Single()
+            .GetProperty("nodes")
+            .EnumerateArray()
+            .Single(node => node.GetProperty("kind").GetString() == "Branch")
+            .GetProperty("id")
+            .GetString()!;
     }
 
     private static string CreateValidBridgeManifestPath(

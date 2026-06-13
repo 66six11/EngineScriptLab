@@ -208,7 +208,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             runtime.Continue(hostStopped.ThreadId.GetValueOrDefault());
             var generatedStopped = WaitForRuntimeStoppedEvent(runtime, AdapterEventTimeout);
-            AssertGeneratedCallStop(generatedStopped);
+            AssertGeneratedCallStop(generatedStopped, FindGeneratedCallGraphNodeId(smoke.Emit.DebugMap));
 
             client.Disconnect(terminateDebuggee: true);
         }
@@ -295,7 +295,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             File.WriteAllText(smoke.GoPath, "go", Encoding.UTF8);
             var generatedStopped = WaitForRuntimeStoppedEvent(runtime, AdapterEventTimeout);
-            AssertGeneratedCallStop(generatedStopped);
+            AssertGeneratedCallStop(generatedStopped, FindGeneratedCallGraphNodeId(smoke.Emit.DebugMap));
 
             runtime.Continue(generatedStopped.ThreadId.GetValueOrDefault());
             client.Disconnect(terminateDebuggee: false);
@@ -402,7 +402,7 @@ public sealed class DapNetcoredbgSmokeTests
             var stoppedResult = WaitForServerStoppedEvent(server, AdapterEventTimeout);
             var stoppedEvent = stoppedResult["stoppedEvent"]!.AsObject();
             Assert.Equal(ScriptStoppedEventStatus.Resolved, stoppedEvent["status"]!.GetValue<string>());
-            Assert.Equal("n10", stoppedEvent["graphNodeId"]!.GetValue<string>());
+            Assert.Equal(FindGeneratedCallGraphNodeId(smoke.Emit.DebugMap), stoppedEvent["graphNodeId"]!.GetValue<string>());
             Assert.Equal(14, stoppedEvent["line"]!.GetValue<int>());
             Assert.Equal(13, stoppedEvent["column"]!.GetValue<int>());
             Assert.Equal(
@@ -570,7 +570,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             File.WriteAllText(smoke.GoPath, "go", Encoding.UTF8);
             var generatedStopped = WaitForRuntimeStoppedEvent(runtime, AdapterEventTimeout);
-            AssertGeneratedCallStop(generatedStopped);
+            AssertGeneratedCallStop(generatedStopped, FindGeneratedCallGraphNodeId(smoke.Emit.DebugMap));
 
             runtime.Continue(generatedStopped.ThreadId.GetValueOrDefault());
             client.Disconnect(terminateDebuggee: false);
@@ -701,7 +701,7 @@ public sealed class DapNetcoredbgSmokeTests
 
             File.WriteAllText(smoke.GoPath, "go", Encoding.UTF8);
             var generatedStopped = WaitForRuntimeStoppedEvent(runtime, AdapterEventTimeout);
-            AssertGeneratedCallStop(generatedStopped);
+            AssertGeneratedCallStop(generatedStopped, FindGeneratedCallGraphNodeId(smoke.Emit.DebugMap));
 
             runtime.Continue(generatedStopped.ThreadId.GetValueOrDefault());
             client.Disconnect(terminateDebuggee: false);
@@ -876,7 +876,7 @@ public sealed class DapNetcoredbgSmokeTests
             var stoppedResult = WaitForServerStoppedEvent(server, AdapterEventTimeout);
             var stoppedEvent = stoppedResult["stoppedEvent"]!.AsObject();
             Assert.Equal(ScriptStoppedEventStatus.Resolved, stoppedEvent["status"]!.GetValue<string>());
-            Assert.Equal("n10", stoppedEvent["graphNodeId"]!.GetValue<string>());
+            Assert.Equal(FindGeneratedCallGraphNodeId(smoke.Emit.DebugMap), stoppedEvent["graphNodeId"]!.GetValue<string>());
             Assert.Equal(14, stoppedEvent["line"]!.GetValue<int>());
             Assert.Equal(13, stoppedEvent["column"]!.GetValue<int>());
             Assert.Equal(
@@ -1570,10 +1570,10 @@ public sealed class DapNetcoredbgSmokeTests
         throw new TimeoutException("Timed out waiting for a mapped DAP stopped event.");
     }
 
-    private static void AssertGeneratedCallStop(ScriptStoppedEvent stopped)
+    private static void AssertGeneratedCallStop(ScriptStoppedEvent stopped, string expectedGraphNodeId)
     {
         Assert.Equal(ScriptStoppedEventStatus.Resolved, stopped.Status);
-        Assert.Equal("n10", stopped.GraphNodeId);
+        Assert.Equal(expectedGraphNodeId, stopped.GraphNodeId);
         Assert.Equal(14, stopped.Line);
         Assert.Equal(13, stopped.Column);
         Assert.True(stopped.ThreadId.HasValue);
@@ -1584,6 +1584,18 @@ public sealed class DapNetcoredbgSmokeTests
         Assert.NotNull(sourceSpan);
         Assert.Equal(14, sourceSpan!.Line);
         Assert.Equal(13, sourceSpan.Column);
+    }
+
+    private static string FindGeneratedCallGraphNodeId(ScriptDebugMap debugMap)
+    {
+        return debugMap.Functions
+            .SelectMany(function => function.Sites)
+            .Single(site =>
+                site.Kind == "Call" &&
+                site.Label == "asharia.transform.translate" &&
+                site.SourceSpan.Line == 14 &&
+                site.SourceSpan.Column == 13)
+            .GraphNodeId;
     }
 
     private static DapBreakpointEvent WaitForBreakpointEvent(

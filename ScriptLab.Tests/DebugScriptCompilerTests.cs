@@ -55,7 +55,7 @@ public sealed class DebugScriptCompilerTests
         Assert.StartsWith("ds_", branchSite.DebugSiteId);
         Assert.Equal(BehaviorIrBreakabilityHint.Breakable, branchSite.BreakabilityHint);
         Assert.False(branchSite.BreakableVerified);
-        Assert.Equal("n3", branchSite.GraphNodeId);
+        Assert.Equal($"node_{branchSite.DebugSiteId}", branchSite.GraphNodeId);
         var instrumentedSource = File.ReadAllText(result.InstrumentedSourcePath);
         Assert.Contains("#line hidden", instrumentedSource);
         Assert.Contains("#line 12", instrumentedSource);

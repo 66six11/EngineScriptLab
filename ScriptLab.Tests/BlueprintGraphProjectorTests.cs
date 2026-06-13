@@ -27,6 +27,8 @@ public sealed class BlueprintGraphProjectorTests
         var multiplyNode = FindNode(function, "BinaryOp", "Multiply");
         var vec3Node = FindNode(function, "MakeStruct", "Vec3");
         var translateNode = FindNode(function, "Call", "asharia.transform.translate");
+        Assert.Equal($"node_{branchNode.DebugSiteId}", branchNode.Id);
+        Assert.Equal("node_generated_update_event_update", eventNode.Id);
         Assert.Equal("PlayerMove.ash.cs", translateNode.Source.FileName);
         Assert.True(translateNode.Source.Line > 0);
         Assert.StartsWith("ds_", branchNode.DebugSiteId);

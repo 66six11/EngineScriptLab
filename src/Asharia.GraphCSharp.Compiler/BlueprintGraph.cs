@@ -68,7 +68,6 @@ public static class BlueprintGraphProjector
         private readonly List<BranchProjection> branches = new();
         private readonly List<JumpProjection> jumps = new();
         private readonly string eventNodeId;
-        private int nextNodeId;
         private int nextEdgeId;
 
         public FunctionGraphBuilder(string functionName, IReadOnlyList<BehaviorIrParameter> parameters)
@@ -227,8 +226,8 @@ public static class BlueprintGraphProjector
         private BlueprintGraphNode CreateGeneratedNode(string kind, string label, BehaviorSourceSpan source)
         {
             var node = new BlueprintGraphNode(
-                $"n{nextNodeId++}",
-                $"generated:{functionName}:{kind}:{nextNodeId}",
+                CreateNodeId($"generated:{functionName}:{kind}:{label}"),
+                $"generated:{functionName}:{kind}:{label}",
                 kind,
                 label,
                 source,
@@ -246,7 +245,7 @@ public static class BlueprintGraphProjector
                 ? instruction.DebugSiteId
                 : null;
             var node = new BlueprintGraphNode(
-                $"n{nextNodeId++}",
+                CreateNodeId(instruction.DebugSiteId),
                 instruction.DebugSiteId,
                 kind,
                 label,
@@ -257,6 +256,16 @@ public static class BlueprintGraphProjector
                 OwningBreakableDebugSiteId: owningBreakableDebugSiteId);
             nodes.Add(node);
             return node;
+        }
+
+        private static string CreateNodeId(string stableKey)
+        {
+            var sanitized = new string(stableKey
+                .Select(character => char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '_')
+                .ToArray())
+                .Trim('_');
+
+            return $"node_{sanitized}";
         }
 
         private void PropagateOwningBreakableSites()
